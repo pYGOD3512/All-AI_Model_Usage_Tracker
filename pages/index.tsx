@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '../store';
 import PerfectScrollbar from 'react-perfect-scrollbar';
@@ -10,21 +10,149 @@ const ReactApexChart = dynamic(() => import('react-apexcharts'), {
 });
 import Link from 'next/link';
 import IconHorizontalDots from '@/components/Icon/IconHorizontalDots';
-import IconDollarSign from '@/components/Icon/IconDollarSign';
-import IconInbox from '@/components/Icon/IconInbox';
-import IconTag from '@/components/Icon/IconTag';
-import IconCreditCard from '@/components/Icon/IconCreditCard';
-import IconShoppingCart from '@/components/Icon/IconShoppingCart';
 import IconArrowLeft from '@/components/Icon/IconArrowLeft';
-import IconCashBanknotes from '@/components/Icon/IconCashBanknotes';
-import IconUser from '@/components/Icon/IconUser';
-import IconNetflix from '@/components/Icon/IconNetflix';
-import IconBolt from '@/components/Icon/IconBolt';
-import IconPlus from '@/components/Icon/IconPlus';
-import IconCaretDown from '@/components/Icon/IconCaretDown';
-import IconMultipleForwardRight from '@/components/Icon/IconMultipleForwardRight';
+
+import Swal from 'sweetalert2';
+import { Swiper, SwiperSlide } from 'swiper/react';
+import 'swiper/css';
+import 'swiper/css/navigation';
+import 'swiper/css/pagination';
+import { Navigation, Pagination, Autoplay } from 'swiper';
+
+
+// CANISTER CONNECTION
+import { Actor, HttpAgent } from '@dfinity/agent';
+import { idlFactory } from '../lib/model_tracker_backend.did'; 
+
+const canisterId: any = process.env.NEXT_PUBLIC_BACKEND_CANISTER_ID;
+
+const coloredToast = (color: any) => {
+    const toast = Swal.mixin({
+        toast: true,
+        position: 'top',
+        showConfirmButton: false,
+        timer: 3000,
+        showCloseButton: true,
+        customClass: {
+            popup: `color-${color}`,
+        },
+    });
+    toast.fire({
+        title: 'Something went wrong, Try again',
+    });
+};
 
 const Index = () => {
+    const [models, setModels] = useState<any[]>([]);
+    const [modelUsage, setModelUsage] = useState([]);
+    const [topModels, setTopModels] = useState<any[]>([]);
+    const [pieChartData, setPieChartData] = useState<any>(null);
+
+    const items = [
+        {
+            src: 'carousel1.jpeg',
+            big_text: 'Unleash the Power of AI Synergy',
+            small_text: 'Alle-AI brings together the best of multiple AI models, allowing you to harness their combined power for unparalleled results'
+        },
+        {
+            src: 'carousel2.jpeg',
+            big_text: 'Fact-Checking and Summarization in One',
+            small_text: "Alle-AI's integrated approach to fact-checking and summarization delivers superior results."
+        },
+        {
+            src: 'carousel3.jpeg',
+            big_text: 'Ignite Your Imagination',
+            small_text: "You can turn your thoughts into stunning visuals with powerful on Alle-AI"
+        },
+    ];
+    
+    // GETTING MODELS AND USAGES ----------- START
+    useEffect(() => {
+        async function fetchModels() {
+            try {
+                const agent = new HttpAgent({ host: "http://127.0.0.1:4943" });
+                await agent.fetchRootKey(); //Disable certificate verification
+                
+                const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
+                const modelsData: any = await modelTrackerBackend.getModels();
+                const modelUsageData: any = await modelTrackerBackend.getModelUsage();
+
+                console.log("Models: ", modelsData);
+                console.log("Model Usage: ", modelUsageData);
+
+                if (modelsData && modelsData.length > 0) {
+                    // Map backend data to the format expected by the table
+                    const mappedModels = modelsData.map((model: any, index: number) => ({
+                        id: index + 1,
+                        model_image: model.image,
+                        model_name: model.name,
+                        model_version: model.version,
+                        dob: 'N/A',
+                        model_desc: model.description,
+                        model_provider: model.provider,
+                        isActive: true,
+                        age: 'N/A',
+                        model_link: model.link,
+                        model_uid: model.model_uid,
+                    }));
+
+                    setModels(mappedModels);
+
+                    // Process and find top 10 models by usage in the last 5 hours
+                    const topModelsData = getTopModelsByUsage(modelUsageData, mappedModels);
+                    setTopModels(topModelsData);
+                }
+
+                setModelUsage(modelUsageData); 
+
+            } catch (error) {
+                coloredToast('danger')
+            }
+        }
+
+        fetchModels();
+    }, []);
+
+    console.log(topModels,'top models')
+
+    // GETTING MODEL AND USAGES ----------- END
+
+    // Helper function to get the sum of the last 5 hours of usage for each model
+    const getTopModelsByUsage = (usageData: any, modelsData: any) => {
+        // Map usage data and calculate the last 5 hours usage
+        const modelsUsageMap = usageData.map((modelUsage: any) => {
+        // Get last 5 hours of usage and sum the requests
+        const lastFiveUsage = modelUsage.usageRecords
+            .slice(-5) // Take only the last 5 records
+            .reduce((sum: number, record: any) => sum + Number(record.requests), 0); // Sum of requests for the last 5 hours
+
+        // Find the corresponding model info using the model_uid
+        const matchedModel = modelsData.find((model: any) => model.model_uid === modelUsage.model_uid);
+
+        if (!matchedModel) {
+            return null; // If no match, skip
+        }
+
+        return {
+            model_uid: modelUsage.model_uid,
+            lastFiveUsage, // Sum of last 5 hours usage
+            model_name: matchedModel.model_name,
+            model_provider: matchedModel.model_provider,
+            model_image: matchedModel.model_image,
+            model_version: matchedModel.model_version,
+        };
+        });
+
+        // Filter out any null entries (if some model UIDs weren't found in modelData)
+        const validModels = modelsUsageMap.filter((model: any) => model !== null);
+
+        // Sort the models by last 5-hour usage, descending order
+        const sortedModels = validModels.sort((a: any, b: any) => b.lastFiveUsage - a.lastFiveUsage);
+
+        // Return only the top 10 models
+        return sortedModels.slice(0, 10);
+    };
+
     const dispatch = useDispatch();
     useEffect(() => {
         dispatch(setPageTitle('Model Usage Tracker'));
@@ -37,31 +165,66 @@ const Index = () => {
         setIsMounted(true);
     });
 
-    //Revenue Chart
+    // LINE CHART FUNCTIONS --------- START
+    const getAllTimestamps = (modelData: any[]) => {   //  Function to get timestamps from all models
+        const timestampsSet = new Set<string>();
+    
+        modelData.forEach((model: any) => {
+        model.usageRecords.forEach((record: any) => {
+            timestampsSet.add(record.timestamp);
+        });
+        });
+    
+        return Array.from(timestampsSet).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());  // Sort array of timestamps
+    };
+    
+    // Transform usage data to chart series format (use null for missing values)
+    const transformDataWithNulls = (modelData: any[], allTimestamps: string[]) => {
+        return modelData.map((model: any) => {
+        const data = allTimestamps.map((timestamp) => {
+            // Check if the model has a record for the current time
+            const record = model.usageRecords.find((r: any) => r.timestamp === timestamp);
+            
+            // If record exists, return its data, otherwise return null for missing timestamps
+            return {
+            x: new Date(timestamp).getTime(), // Ensure the timestamp is in correct format for the x-axis (datetime)
+            y: record ? Number(record.requests) : null,
+            };
+        });
+    
+        return {
+            name: model.name,
+            data,
+        };
+        });
+    };
+    
+    const allTimestamps = getAllTimestamps(modelUsage);   //  Get timestamps from all models
+    
+    const transformedSeries = transformDataWithNulls(modelUsage, allTimestamps);   // Transform the data to include nulls for missing data
+
+    const colorPalette = isDark
+    ? ['#2196F3', '#E7515A', '#FF9800', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF5722', '#673AB7', '#3F51B5']
+    : ['#1B55E2', '#E7515A', '#FF9800', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF5722', '#673AB7', '#3F51B5'];
+
+    const getColorForLine = (index: number) => colorPalette[index % colorPalette.length];
+
+    
+    // Line Chart Configuration
     const revenueChart: any = {
-        series: [
-            {
-                name: 'GPT-4o',
-                data: [16800, 16800, 15500, 17800, 15500, 17000, 19000, 16000, 15000, 17000, 14000, 17000],
-            },
-            {
-                name: 'Claude 3',
-                data: [16500, 17500, 16200, 17300, 16000, 19500, 16000, 17000, 16000, 19000, 18000, 19000],
-            },
-        ],
+        series: transformedSeries,
         options: {
             chart: {
                 height: 325,
                 type: 'area',
                 fontFamily: 'Nunito, sans-serif',
                 zoom: {
-                    enabled: false,
+                    enabled: true,
                 },
                 toolbar: {
-                    show: false,
+                    show: true,
                 },
             },
-
             dataLabels: {
                 enabled: false,
             },
@@ -78,50 +241,45 @@ const Index = () => {
                 left: -7,
                 top: 22,
             },
-            colors: isDark ? ['#2196F3', '#E7515A'] : ['#1B55E2', '#E7515A'],
+            colors: transformedSeries.map((_, index) => getColorForLine(index)),
             markers: {
-                discrete: [
-                    {
-                        seriesIndex: 0,
-                        dataPointIndex: 6,
-                        fillColor: '#1B55E2',
-                        strokeColor: 'transparent',
-                        size: 7,
-                    },
-                    {
-                        seriesIndex: 1,
-                        dataPointIndex: 5,
-                        fillColor: '#E7515A',
-                        strokeColor: 'transparent',
-                        size: 7,
-                    },
-                ],
+                size: 0,
             },
-            labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
             xaxis: {
-                axisBorder: {
-                    show: false,
+                title: {
+                    text: 'Period',
                 },
-                axisTicks: {
-                    show: false,
-                },
-                crosshairs: {
-                    show: true,
-                },
+                type: 'datetime', // x-axis is treated as a datetime axis
                 labels: {
-                    offsetX: isRtl ? 2 : 0,
-                    offsetY: 5,
+                    datetimeFormatter: {
+                        year: 'yyyy',
+                        month: 'MMM \'yy',
+                        day: 'dd MMM',
+                        hour: 'HH:mm'
+                    },
                     style: {
                         fontSize: '12px',
                         cssClass: 'apexcharts-xaxis-title',
                     },
                 },
+                axisBorder: {
+                    show: true,
+                },
+                axisTicks: {
+                    show: true,
+                },
+                crosshairs: {
+                    show: true,
+                },
             },
             yaxis: {
+                title: {
+                    text: 'Usage',
+                },
                 tickAmount: 7,
                 labels: {
                     formatter: (value: number) => {
-                        return value / 1000 + 'K';
+                        return value;
                     },
                     offsetX: isRtl ? -30 : -10,
                     offsetY: 0,
@@ -130,6 +288,12 @@ const Index = () => {
                         cssClass: 'apexcharts-yaxis-title',
                     },
                 },
+                axisBorder: {
+                    show: false,
+                },
+                axisTicks: {
+                    show: false,
+                },
                 opposite: isRtl ? true : false,
             },
             grid: {
@@ -137,7 +301,7 @@ const Index = () => {
                 strokeDashArray: 5,
                 xaxis: {
                     lines: {
-                        show: false,
+                        show: true,
                     },
                 },
                 yaxis: {
@@ -153,16 +317,16 @@ const Index = () => {
                 },
             },
             legend: {
-                position: 'top',
-                horizontalAlign: 'right',
-                fontSize: '16px',
+                position: 'bottom',
+                horizontalAlign: 'center',
+                fontSize: '14px',
                 markers: {
-                    width: 10,
-                    height: 10,
+                    width: 8,
+                    height: 8,
                     offsetX: -2,
                 },
                 itemMargin: {
-                    horizontal: 10,
+                    horizontal: 5,
                     vertical: 5,
                 },
             },
@@ -171,7 +335,7 @@ const Index = () => {
                     show: true,
                 },
                 x: {
-                    show: false,
+                    format: 'dd MMM yyyy HH:mm',
                 },
             },
             fill: {
@@ -186,10 +350,45 @@ const Index = () => {
             },
         },
     };
+    // LINE CHART FUNCTIONS --------- END
 
-    //Sales By Category
+    // PIE CHART FUNCTIONS --------- START
+    
+    const getChartData = (usageData: any) => {   // Transform the fetched model usage data to the chart format
+        const pie_series: number[] = [];
+        const pie_lables: string[] = [];
+
+        // Iterate through each model's usage data
+        usageData.forEach((model: any) => {
+        // Sum up all requests for the model
+        const totalRequests = model.usageRecords
+        ? model.usageRecords.reduce(
+            (acc: number, record: any) => acc + Number(record.requests),
+            0
+        )
+        : 0;  // If there are no usageRecords, set totalRequests to 0
+
+        // Add the summed data to the series array
+        pie_series.push(totalRequests);
+
+        // Add the model name to the labels array
+        pie_lables.push(model.name);
+        });
+
+
+        // Return chart data in the expected format
+        return {
+        pie_series,
+        pie_lables,
+        };
+    };
+
+    // Now, use getChartData to dynamically update the salesByCategory
+    const { pie_series, pie_lables } = getChartData(modelUsage);
+
+    //Pie Chart Configuration
     const salesByCategory: any = {
-        series: [985, 737, 270],
+        series: pie_series,
         options: {
             chart: {
                 type: 'donut',
@@ -204,7 +403,7 @@ const Index = () => {
                 width: 25,
                 colors: isDark ? '#0e1726' : '#fff',
             },
-            colors: isDark ? ['#5c1ac3', '#e2a03f', '#e7515a', '#e2a03f'] : ['#e2a03f', '#5c1ac3', '#e7515a'],
+            colors: transformedSeries.map((_, index) => getColorForLine(index)),
             legend: {
                 position: 'bottom',
                 horizontalAlign: 'center',
@@ -253,7 +452,7 @@ const Index = () => {
                     },
                 },
             },
-            labels: ['GPT-4o', 'Claude 3', 'Gemini 1.0 pro'],
+            labels: pie_lables,
             states: {
                 hover: {
                     filter: {
@@ -270,235 +469,7 @@ const Index = () => {
             },
         },
     };
-
-    //Daily Sales
-    const dailySales: any = {
-        series: [
-            {
-                name: 'Sales',
-                data: [44, 55, 41, 67, 22, 43, 21],
-            },
-            {
-                name: 'Last Week',
-                data: [13, 23, 20, 8, 13, 27, 33],
-            },
-        ],
-        options: {
-            chart: {
-                height: 160,
-                type: 'bar',
-                fontFamily: 'Nunito, sans-serif',
-                toolbar: {
-                    show: false,
-                },
-                stacked: true,
-                stackType: '100%',
-            },
-            dataLabels: {
-                enabled: false,
-            },
-            stroke: {
-                show: true,
-                width: 1,
-            },
-            colors: ['#e2a03f', '#e0e6ed'],
-            responsive: [
-                {
-                    breakpoint: 480,
-                    options: {
-                        legend: {
-                            position: 'bottom',
-                            offsetX: -10,
-                            offsetY: 0,
-                        },
-                    },
-                },
-            ],
-            xaxis: {
-                labels: {
-                    show: false,
-                },
-                categories: ['Sun', 'Mon', 'Tue', 'Wed', 'Thur', 'Fri', 'Sat'],
-            },
-            yaxis: {
-                show: false,
-            },
-            fill: {
-                opacity: 1,
-            },
-            plotOptions: {
-                bar: {
-                    horizontal: false,
-                    columnWidth: '25%',
-                },
-            },
-            legend: {
-                show: false,
-            },
-            grid: {
-                show: false,
-                xaxis: {
-                    lines: {
-                        show: false,
-                    },
-                },
-                padding: {
-                    top: 10,
-                    right: -20,
-                    bottom: -20,
-                    left: -20,
-                },
-            },
-        },
-    };
-
-    //Total Orders
-    const totalOrders: any = {
-        series: [
-            {
-                name: 'Sales',
-                data: [28, 40, 36, 52, 38, 60, 38, 52, 36, 40],
-            },
-        ],
-        options: {
-            chart: {
-                height: 290,
-                type: 'area',
-                fontFamily: 'Nunito, sans-serif',
-                sparkline: {
-                    enabled: true,
-                },
-            },
-            stroke: {
-                curve: 'smooth',
-                width: 2,
-            },
-            colors: isDark ? ['#00ab55'] : ['#00ab55'],
-            labels: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '10'],
-            yaxis: {
-                min: 0,
-                show: false,
-            },
-            grid: {
-                padding: {
-                    top: 125,
-                    right: 0,
-                    bottom: 0,
-                    left: 0,
-                },
-            },
-            fill: {
-                opacity: 1,
-                type: 'gradient',
-                gradient: {
-                    type: 'vertical',
-                    shadeIntensity: 1,
-                    inverseColors: !1,
-                    opacityFrom: 0.3,
-                    opacityTo: 0.05,
-                    stops: [100, 100],
-                },
-            },
-            tooltip: {
-                x: {
-                    show: false,
-                },
-            },
-        },
-    };
-
-    // uniqueVisitorSeriesOptions
-    const uniqueVisitorSeries: any = {
-        series: [
-            {
-                name: 'Direct',
-                data: [58, 44, 55, 57, 56, 61, 58, 63, 60, 66, 56, 63],
-            },
-            {
-                name: 'Organic',
-                data: [91, 76, 85, 101, 98, 87, 105, 91, 114, 94, 66, 70],
-            },
-        ],
-        options: {
-            chart: {
-                height: 360,
-                type: 'bar',
-                fontFamily: 'Nunito, sans-serif',
-                toolbar: {
-                    show: false,
-                },
-            },
-            dataLabels: {
-                enabled: false,
-            },
-            stroke: {
-                width: 2,
-                colors: ['transparent'],
-            },
-            colors: ['#5c1ac3', '#ffbb44'],
-            dropShadow: {
-                enabled: true,
-                blur: 3,
-                color: '#515365',
-                opacity: 0.4,
-            },
-            plotOptions: {
-                bar: {
-                    horizontal: false,
-                    columnWidth: '55%',
-                    borderRadius: 8,
-                    borderRadiusApplication: 'end',
-                },
-            },
-            legend: {
-                position: 'bottom',
-                horizontalAlign: 'center',
-                fontSize: '14px',
-                itemMargin: {
-                    horizontal: 8,
-                    vertical: 8,
-                },
-            },
-            grid: {
-                borderColor: isDark ? '#191e3a' : '#e0e6ed',
-                padding: {
-                    left: 20,
-                    right: 20,
-                },
-            },
-            xaxis: {
-                categories: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
-                axisBorder: {
-                    show: true,
-                    color: isDark ? '#3b3f5c' : '#e0e6ed',
-                },
-            },
-            yaxis: {
-                tickAmount: 6,
-                opposite: isRtl ? true : false,
-                labels: {
-                    offsetX: isRtl ? -10 : 0,
-                },
-            },
-            fill: {
-                type: 'gradient',
-                gradient: {
-                    shade: isDark ? 'dark' : 'light',
-                    type: 'vertical',
-                    shadeIntensity: 0.3,
-                    inverseColors: false,
-                    opacityFrom: 1,
-                    opacityTo: 0.8,
-                    stops: [0, 100],
-                },
-            },
-            tooltip: {
-                marker: {
-                    show: true,
-                },
-            },
-        },
-    };
+    // PIE CHART FUNCTIONS --------- END
 
     return (
         <>
@@ -539,9 +510,6 @@ const Index = () => {
                                     </Dropdown>
                                 </div>
                             </div>
-                            {/* <p className="text-lg dark:text-white-light/90">
-                                Model usages<span className="ml-2 text-primary">10,840</span>
-                            </p> */}
                             <div className="relative">
                                 <div className="rounded-lg bg-white dark:bg-black">
                                     {isMounted ? (
@@ -555,10 +523,11 @@ const Index = () => {
                             </div>
                         </div>
 
-                        <div className="panel h-full">
+                        {/* <div className="panel h-full">
                             <div className="mb-5 flex items-center">
-                                <h5 className="text-lg font-semibold dark:text-white-light">Model Usage</h5>
+                                <h5 className="text-lg font-semibold dark:text-white-light">Total Usage</h5>
                             </div>
+                            
                             <div>
                                 <div className="rounded-lg bg-white dark:bg-black">
                                     {isMounted ? (
@@ -570,100 +539,73 @@ const Index = () => {
                                     )}
                                 </div>
                             </div>
-                        </div>
+                        </div> */}
                     </div>
 
                     <div className="mb-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
                         <div className="panel pb-1 h-full sm:col-span-2 xl:col-span-1">
                             <div className="mb-5 flex items-center justify-between dark:text-white-light">
                                 <h5 className="text-lg font-semibold">Top used models</h5>
-                                <div className="dropdown">
-                                    <Dropdown
-                                        placement={`${isRtl ? 'bottom-start' : 'bottom-end'}`}
-                                        button={<IconHorizontalDots className="text-black/70 dark:text-white/70 hover:!text-primary" />}
-                                    >
-                                        <ul>
-                                            <li>
-                                                <button type="button"></button>
-                                            </li>
-                                            <li>
-                                                <button type="button"></button>
-                                            </li>
-                                        </ul>
-                                    </Dropdown>
-                                </div>
                             </div>
                             <PerfectScrollbar className="relative mb-4 h-[230px] ltr:-mr-3 ltr:pr-3 rtl:-ml-3 rtl:pl-3" options={{suppressScrollX: true}}>
                                 <div>
                                     <div className="space-y-6">
-                                        <div className="flex">
-                                            <img className="h-8 w-8 rounded-md object-cover ltr:mr-3 rtl:ml-3" src="/assets/images/models/gpt-4o.png" alt="avatar" />
+                                        {/* Dynamically render the top models */}
+                                        {topModels.map((model, index) => (
+                                            <div key={index} className="flex">
+                                            {/* Model Image */}
+                                            <img
+                                                className="h-8 w-8 rounded-md object-cover ltr:mr-3 rtl:ml-3"
+                                                src={`${model.model_image}`}
+                                                alt={`${model.model_name}`}
+                                            />
                                             <div className="flex-1 px-3">
-                                                <div>GPT-4o</div>
-                                                <div className="text-xs text-white-dark dark:text-gray-500">OpenAI</div>
+                                                {/* Model Name */}
+                                                <div>{model.model_name} {model.model_version}</div>
+                                                {/* Model Provider */}
+                                                <div className="text-xs text-white-dark dark:text-gray-500">{model.model_provider}</div>
                                             </div>
-                                            <span className="whitespace-pre px-1 text-base text-success ltr:ml-auto rtl:mr-auto">10,000</span>
-                                        </div>
-                                        <div className="flex">
-                                            <img className="h-8 w-8 rounded-md object-cover ltr:mr-3 rtl:ml-3" src="/assets/images/models/claude-3.png" alt="avatar" />
-                                            <div className="flex-1 px-3">
-                                                <div>Claude 3</div>
-                                                <div className="text-xs text-white-dark dark:text-gray-500">Anthropic</div>
+                                            {/* Last 5-hour Usage */}
+                                            <span className="whitespace-pre px-1 text-base text-success ltr:ml-auto rtl:mr-auto">
+                                                {model.lastFiveUsage.toLocaleString()} {/* Format usage with commas */}
+                                            </span>
                                             </div>
-                                            <span className="whitespace-pre px-1 text-base text-success ltr:ml-auto rtl:mr-auto">8,000</span>
-                                        </div>
-                                        <div className="flex">
-                                            <img className="h-8 w-8 rounded-md object-cover ltr:mr-3 rtl:ml-3" src="/assets/images/models/gemini.png" alt="avatar" />
-                                            <div className="flex-1 px-3">
-                                                <div>Gemini</div>
-                                                <div className="text-xs text-white-dark dark:text-gray-500">Google</div>
-                                            </div>
-                                            <span className="whitespace-pre px-1 text-base text-success ltr:ml-auto rtl:mr-auto">6,000</span>
-                                        </div>
-                                        <div className="flex">
-                                            <img className="h-8 w-8 rounded-md object-cover ltr:mr-3 rtl:ml-3" src="/assets/images/models/meta.png" alt="avatar" />
-                                            <div className="flex-1 px-3">
-                                                <div>Llama</div>
-                                                <div className="text-xs text-white-dark dark:text-gray-500">Meta</div>
-                                            </div>
-                                            <span className="whitespace-pre px-1 text-base text-success ltr:ml-auto rtl:mr-auto">3,000</span>
-                                        </div>
+                                        ))}
                                     </div>
                                 </div>
                             </PerfectScrollbar>
                             <div className="border-t border-white-light dark:border-white/10">
                                 <button type="button" className="group group flex w-full items-center justify-center p-1 font-semibold hover:text-primary">
-                                    <Link href="/models">View All</Link>
+                                    <Link href="/analytics">View All Models</Link>
                                     <IconArrowLeft className="rtl:rotate-180 group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition duration-300 ltr:ml-1 rtl:mr-1" />
                                 </button>
                             </div>
                         </div>
 
-                        <div className="panel h-[350px] p-0 lg:col-span-2">
-                            <div className="mb-5 flex items-start justify-between border-b border-white-light p-5  dark:border-[#1b2e4b] dark:text-white-light">
-                                <h5 className="text-lg font-semibold ">Model Usage</h5>
-                                <div className="dropdown">
-                                    <Dropdown
-                                        offset={[0, 5]}
-                                        placement={`${isRtl ? 'bottom-start' : 'bottom-end'}`}
-                                        btnClassName="hover:text-primary"
-                                        button={<IconHorizontalDots className="text-black/70 dark:text-white/70 hover:!text-primary" />}
-                                    >
-                                        <ul>
-                                            <li>
-                                                <button type="button">View</button>
-                                            </li>
-                                            <li>
-                                                <button type="button">Update</button>
-                                            </li>
-                                            <li>
-                                                <button type="button">Delete</button>
-                                            </li>
-                                        </ul>
-                                    </Dropdown>
+                        <div className="panel h-full lg:col-span-2">
+                            <Swiper modules={[Pagination, Autoplay]} pagination={{ clickable: true }} autoplay={{ delay: 5000 }} direction="vertical" className="mx-auto max-w-full" id="slider3">
+                                <div className="swiper-wrapper">
+                                {items.map((item, i) => {
+                                    return (
+                                        <SwiperSlide key={i}>
+                                            <img src={`/assets/images/${item.src}`} className="w-full max-h-80 object-cover" alt="itemImage" />
+                                                <div className="absolute z-[999] text-white top-1/4 ltr:left-12 rtl:right-12">
+                                                    <div className="sm:text-3xl text-base font-bold">{item.big_text}</div>
+                                                    <div className="sm:mt-5 mt-1 w-4/5 text-base sm:block hidden font-medium">
+                                                    {item.small_text}
+                                                    </div>
+                                                    <Link href="https://alle-ai.com/chat" target='_blank'>
+                                                        <button type="button" className="mt-4 btn btn-primary">
+                                                            Try now
+                                                        </button>
+                                                    </Link>
+                                                </div>
+                                        </SwiperSlide>
+                                        
+                                    );
+                                })}
                                 </div>
-                            </div>
-                            {isMounted && <ReactApexChart options={uniqueVisitorSeries.options} series={uniqueVisitorSeries.series} type="bar" height={250} width={'100%'} />}
+                            </Swiper>
                         </div>
                     </div>
                 </div>

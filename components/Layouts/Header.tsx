@@ -378,7 +378,7 @@ const Header = () => {
                                 <Link href="/finance">{t('finance')}</Link>
                             </li>
                             <li>
-                                <Link href="/crypto">{t('crypto')}</Link>
+                                <Link href="/analytics">{t('analytics')}</Link>
                             </li>
                         </ul>
                     </li>

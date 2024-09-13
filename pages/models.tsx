@@ -1,5 +1,5 @@
 import { DataTable, DataTableSortStatus } from 'mantine-datatable';
-import { useEffect, useState } from 'react';
+import { useState, Fragment, useEffect, useRef } from 'react';
 import sortBy from 'lodash/sortBy';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '@/store';
@@ -8,6 +8,15 @@ import { setPageTitle } from '@/store/themeConfigSlice';
 import IconBell from '@/components/Icon/IconBell';
 import IconCaretDown from '@/components/Icon/IconCaretDown';
 import Link from 'next/link';
+
+import { Dialog, Transition, Tab } from '@headlessui/react';
+
+
+// CANISTER CONNECTION
+import { Actor, HttpAgent } from '@dfinity/agent';
+import { idlFactory } from '../lib/model_tracker_backend.did'; 
+import IconX from '@/components/Icon/IconX';
+const canisterId: any = process.env.NEXT_PUBLIC_BACKEND_CANISTER_ID;
 
 const rowData = [
     {
@@ -50,25 +59,64 @@ const rowData = [
 ];
 
 const ColumnChooser = () => {
+    const [modal18, setModal18] = useState(false);
+
+    // CANISTER INTERACTIONS ====== START
+    const [models, setModels] = useState<any[]>([]);
+    const [useBackendData, setUseBackendData] = useState(false); // To switch between hardcoded and backend data
+
+    useEffect(() => {
+        async function fetchModels() {
+            try {
+                const agent = new HttpAgent({ host: "http://127.0.0.1:4943" });
+                await agent.fetchRootKey(); //Disable certificate verification
+                
+                const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
+                const modelsData: any = await modelTrackerBackend.getModels();
+
+                console.log("Models from backend: ", modelsData);
+
+                if (modelsData && modelsData.length > 0) {
+                    // Map backend data to the format expected by the table
+                    const mappedModels = modelsData.map((model: any, index: number) => ({
+                        id: index + 1,
+                        model_image: model.image,
+                        model_name: model.name,
+                        model_version: model.version,
+                        dob: 'N/A',
+                        model_desc: model.description,
+                        model_provider: model.provider,
+                        isActive: true,
+                        age: 'N/A',
+                        model_link: model.link,
+                    }));
+
+                    setModels(mappedModels); 
+                    setUseBackendData(true); // Use backend data if available
+                }
+            } catch (error) {
+                console.error("Failed to fetch models: ", error);
+            }
+        }
+
+        fetchModels();
+    }, []);
+
     const dispatch = useDispatch();
     useEffect(() => {
-        dispatch(setPageTitle('Column Chooser Table'));
+        dispatch(setPageTitle('All Models'));
     });
-    const isRtl = useSelector((state: IRootState) => state.themeConfig.rtlClass) === 'rtl' ? true : false;
+    const isRtl = useSelector((state: IRootState) => state.themeConfig.rtlClass) === 'rtl';
 
-    // show/hide
+    // Show/Hide Columns
     const [page, setPage] = useState(1);
     const PAGE_SIZES = [10, 20, 30, 50, 100];
     const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
-    const [initialRecords, setInitialRecords] = useState(sortBy(rowData, 'id'));
-    const [recordsData, setRecordsData] = useState(initialRecords);
-
     const [search, setSearch] = useState('');
     const [sortStatus, setSortStatus] = useState<DataTableSortStatus>({
         columnAccessor: 'id',
         direction: 'asc',
     });
-
     const [hideCols, setHideCols] = useState<any>(['age', 'dob', 'isActive']);
 
     const formatDate = (date: any) => {
@@ -81,9 +129,9 @@ const ColumnChooser = () => {
         return '';
     };
 
-    const showHideColumns = (col: any, value: any) => {
+    const showHideColumns = (col: any) => {
         if (hideCols.includes(col)) {
-            setHideCols((col: any) => hideCols.filter((d: any) => d !== col));
+            setHideCols(hideCols.filter((d: any) => d !== col));
         } else {
             setHideCols([...hideCols, col]);
         }
@@ -97,14 +145,19 @@ const ColumnChooser = () => {
         { accessor: 'model_provider', title: 'Provider' },
         { accessor: 'model_link', title: 'Link' },
         { accessor: 'model_desc', title: 'Description' },
-        { accessor: 'age', title: 'Age' },
-        { accessor: 'dob', title: 'Birthdate' },
+        { accessor: 'age', title: 'New Col' },
+        { accessor: 'dob', title: 'New Col' },
         { accessor: 'isActive', title: 'Active' },
     ];
 
+    const recordsToShow = useBackendData ? models : rowData; // Switch between backend data and hardcoded data
+
+    const [initialRecords, setInitialRecords] = useState(sortBy(recordsToShow, 'id'));
+    const [recordsData, setRecordsData] = useState(initialRecords);
+
     useEffect(() => {
-        setPage(1);
-    }, [pageSize]);
+        setInitialRecords(sortBy(recordsToShow, 'id'));
+    }, [useBackendData, recordsToShow]);
 
     useEffect(() => {
         const from = (page - 1) * pageSize;
@@ -113,27 +166,21 @@ const ColumnChooser = () => {
     }, [page, pageSize, initialRecords]);
 
     useEffect(() => {
-        setInitialRecords(() => {
-            return rowData.filter((item) => {
-                return (
-                    item.id.toString().includes(search.toLowerCase()) ||
-                    item.model_image.toLowerCase().includes(search.toLowerCase()) ||
-                    item.model_name.toLowerCase().includes(search.toLowerCase()) ||
-                    item.model_link.toLowerCase().includes(search.toLowerCase()) ||
-                    item.model_version.toLowerCase().includes(search.toLowerCase()) ||
-                    item.age.toString().toLowerCase().includes(search.toLowerCase()) ||
-                    item.dob.toLowerCase().includes(search.toLowerCase()) ||
-                    item.model_provider.toLowerCase().includes(search.toLowerCase())
-                );
-            });
-        });
-    }, [search]);
-
-    useEffect(() => {
         const data = sortBy(initialRecords, sortStatus.columnAccessor);
         setInitialRecords(sortStatus.direction === 'desc' ? data.reverse() : data);
         setPage(1);
     }, [sortStatus]);
+
+    // Search functionality
+    useEffect(() => {
+        const filteredRecords = recordsToShow.filter((record: any) =>
+            record.model_name.toLowerCase().includes(search.toLowerCase()) ||
+            record.model_version.toLowerCase().includes(search.toLowerCase()) ||
+            record.model_provider.toLowerCase().includes(search.toLowerCase())
+        );
+        setInitialRecords(sortBy(filteredRecords, 'id'));
+        setPage(1);
+    }, [search, recordsToShow]);
 
     return (
         <div>
@@ -191,10 +238,11 @@ const ColumnChooser = () => {
                                                                 checked={!hideCols.includes(col.accessor)}
                                                                 className="form-checkbox"
                                                                 defaultValue={col.accessor}
-                                                                onChange={(event: any) => {
-                                                                    setHideCols(event.target.value);
-                                                                    showHideColumns(col.accessor, event.target.checked);
-                                                                }}
+                                                                // onChange={(event: any) => {
+                                                                //     setHideCols(event.target.value);
+                                                                //     showHideColumns(col.accessor, event.target.checked);
+                                                                // }}
+                                                                onChange={() => showHideColumns(col.accessor)}
                                                             />
                                                             <span className="ltr:ml-2 rtl:mr-2">{col.title}</span>
                                                         </label>
@@ -228,7 +276,8 @@ const ColumnChooser = () => {
                                 sortable: true,
                                 render: ({ model_image }) => (
                                     <div className="flex items-center gap-2">
-                                        <img src={`${model_image}`} className="h-9 w-9 max-w-none rounded-md" alt="user-profile" />
+                                        <img onClick={() => setModal18(true)} src={`${model_image}`} className="h-9 w-9 max-w-none rounded-md" alt="model image" />
+                                        
                                     </div>
                                 ),
                                 hidden: hideCols.includes('model_image'),
@@ -270,13 +319,13 @@ const ColumnChooser = () => {
                             },
                             {
                                 accessor: 'age',
-                                title: 'Age',
+                                title: 'New Col',
                                 sortable: true,
                                 hidden: hideCols.includes('age'),
                             },
                             {
                                 accessor: 'dob',
-                                title: 'Birthdate',
+                                title: 'New Col',
                                 sortable: true,
                                 hidden: hideCols.includes('dob'),
                                 render: ({ dob }) => <div>{formatDate(dob)}</div>,
@@ -303,6 +352,145 @@ const ColumnChooser = () => {
                     />
                 </div>
             </div>
+            <Transition appear show={modal18} as={Fragment}>
+                <Dialog as="div" open={modal18} onClose={() => setModal18(false)}>
+                    <Transition.Child
+                        as={Fragment}
+                        enter="ease-out duration-300"
+                        enterFrom="opacity-0"
+                        enterTo="opacity-100"
+                        leave="ease-in duration-200"
+                        leaveFrom="opacity-100"
+                        leaveTo="opacity-0"
+                    >
+                        <div className="fixed inset-0" />
+                    </Transition.Child>
+                    <div id="tabs_modal" className="fixed inset-0 z-[999] overflow-y-auto bg-[black]/60">
+                        <div className="flex min-h-screen items-center justify-center px-4">
+                            <Transition.Child
+                                as={Fragment}
+                                enter="ease-out duration-300"
+                                enterFrom="opacity-0 scale-95"
+                                enterTo="opacity-100 scale-100"
+                                leave="ease-in duration-200"
+                                leaveFrom="opacity-100 scale-100"
+                                leaveTo="opacity-0 scale-95"
+                            >
+                                <Dialog.Panel className="panel my-8 w-full max-w-lg overflow-hidden rounded-lg border-0 p-0 text-black dark:text-white-dark">
+                                    <div className="flex items-center justify-between bg-[#fbfbfb] px-5 py-3 dark:bg-[#121c2c]">
+                                        <h5 className="text-lg font-bold">Model Details</h5>
+                                        <button onClick={() => setModal18(false)} type="button" className="text-white-dark hover:text-dark">
+                                            <IconX />
+                                        </button>
+                                    </div>
+                                    <div className="p-5">
+                                        <Tab.Group>
+                                            <Tab.List className="mt-3 flex flex-wrap border-b border-white-light dark:border-[#191e3a]">
+                                                <Tab as={Fragment}>
+                                                    {({ selected }) => (
+                                                        <button
+                                                            type="button"
+                                                            className={`${
+                                                                selected
+                                                                    ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black '
+                                                                    : ''
+                                                            } -mb-[1px] block border border-transparent p-3.5 py-2 hover:text-primary dark:hover:border-b-black`}
+                                                        >
+                                                            Overview
+                                                        </button>
+                                                    )}
+                                                </Tab>
+                                                <Tab as={Fragment}>
+                                                    {({ selected }) => (
+                                                        <button
+                                                            type="button"
+                                                            className={`${
+                                                                selected
+                                                                    ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black '
+                                                                    : ''
+                                                            }-mb-[1px] block border border-transparent p-3.5 py-2 hover:text-primary dark:hover:border-b-black`}
+                                                        >
+                                                            Capabilities
+                                                        </button>
+                                                    )}
+                                                </Tab>
+                                                <Tab as={Fragment}>
+                                                    {({ selected }) => (
+                                                        <button
+                                                            type="button"
+                                                            className={`${
+                                                                selected
+                                                                    ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black '
+                                                                    : ''
+                                                            }-mb-[1px] block border border-transparent p-3.5 py-2 hover:text-primary dark:hover:border-b-black`}
+                                                        >
+                                                            Technical Details
+                                                        </button>
+                                                    )}
+                                                </Tab>
+                                            </Tab.List>
+                                            <Tab.Panels className="text-sm">
+                                                <Tab.Panel>
+                                                    <div className="active pt-5">
+                                                        <h4 className="mb-4 text-2xl font-semibold">We move your world!</h4>
+                                                        <p className="mb-4">
+                                                        Purpose: Provides a general introduction to the AI model. Content: Model name and type (e.g., generative language model, image classifier) 
+                                                        Brief description of its capabilities and applications Key features and benefits
+                                                        </p>
+                                                        <p>
+                                                            Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna
+                                                            aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+                                                        </p>
+                                                    </div>
+                                                </Tab.Panel>
+                                                <Tab.Panel>
+                                                    <div>
+                                                        <div className="flex items-start pt-5">
+                                                            <div className="h-20 w-20 flex-none ltr:mr-4 rtl:ml-4">
+                                                                <img
+                                                                    src="/assets/images/profile-34.jpeg"
+                                                                    alt="img"
+                                                                    className="m-0 h-20 w-20 rounded-full object-cover ring-2 ring-[#ebedf2] dark:ring-white-dark"
+                                                                />
+                                                            </div>
+                                                            <div className="flex-auto">
+                                                                <h5 className="mb-4 text-xl font-medium">Media heading</h5>
+                                                                <p className="text-white-dark">
+                                                                    Cras sit amet nibh libero, in gravida nulla. Nulla vel metus scelerisque ante sollicitudin. Cras purus odio,
+                                                                    vestibulum in vulputate at, tempus viverra turpis. Fusce condimentum nunc ac nisi vulputate fringilla. Donec
+                                                                    lacinia congue felis in faucibus.
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </Tab.Panel>
+                                                <Tab.Panel>
+                                                    <div className="pt-5">
+                                                        <p>
+                                                            Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna
+                                                            aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
+                                                            Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur
+                                                            sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+                                                        </p>
+                                                    </div>
+                                                </Tab.Panel>
+                                            </Tab.Panels>
+                                        </Tab.Group>
+                                        <div className="mt-8 flex items-center justify-end">
+                                            {/* <button onClick={() => setModal18(false)} type="button" className="btn btn-outline-danger">
+                                                Close
+                                            </button> */}
+                                            <button onClick={() => setModal18(false)} type="button" className="btn btn-primary ltr:ml-4 rtl:mr-4">
+                                                Ok
+                                            </button>
+                                        </div>
+                                    </div>
+                                </Dialog.Panel>
+                            </Transition.Child>
+                        </div>
+                    </div>
+                </Dialog>
+            </Transition>
         </div>
     );
 };
