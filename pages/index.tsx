@@ -523,7 +523,7 @@ const Index = () => {
                             </div>
                         </div>
 
-                        {/* <div className="panel h-full">
+                        <div className="panel h-full">
                             <div className="mb-5 flex items-center">
                                 <h5 className="text-lg font-semibold dark:text-white-light">Total Usage</h5>
                             </div>
@@ -539,7 +539,7 @@ const Index = () => {
                                     )}
                                 </div>
                             </div>
-                        </div> */}
+                        </div>
                     </div>
 
                     <div className="mb-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
