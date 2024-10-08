@@ -11,6 +11,8 @@ import Link from 'next/link';
 
 import { Dialog, Transition, Tab } from '@headlessui/react';
 
+import Swal from 'sweetalert2';
+
 
 // CANISTER CONNECTION
 import { Actor, HttpAgent } from '@dfinity/agent';
@@ -22,41 +24,32 @@ const rowData = [
     {
         id: 1,
         model_image: '/assets/images/models/gpt-4o.png',
-        model_name: 'ChatGPT',
-        model_version: '4o',
-        dob: '2004-05-28',
-        model_desc: '240 Vandalia Avenue',
+        model_name: 'GPT-4o',
+        model_version: '',
+        dob: '',
+        model_desc: 'Text Generation',
         model_provider: 'OpenAI',
         isActive: true,
-        age: 39,
-        model_link: 'https://gpt.com',
+        age: '',
+        model_link: 'https://openai.com',
     },
-    {
-        id: 2,
-        model_image: '/assets/images/models/gemini.png',
-        model_name: 'Gemini',
-        model_version: '1.0 pro',
-        dob: '1989-11-19',
-        model_desc: '240 Vandalia Avenue',
-        model_provider: 'Google',
-        isActive: false,
-        age: 32,
-        model_link: 'https://gemini.com',
-    },
-    {
-        id: 3,
-        model_image: '/assets/images/models/meta.png',
-        model_name: 'Llama',
-        model_version: '3 70B',
-        dob: '2016-09-05',
-        model_desc: '240 Vandalia Avenue',
-        model_provider: 'Meta',
-        isActive: false,
-        age: 26,
-        model_link: 'https://meta.com',
-    },
-
 ];
+
+const coloredToast = (color: any) => {
+    const toast = Swal.mixin({
+        toast: true,
+        position: 'top',
+        showConfirmButton: false,
+        timer: 3000,
+        showCloseButton: true,
+        customClass: {
+            popup: `color-${color}`,
+        },
+    });
+    toast.fire({
+        title: 'Something went wrong, Try again',
+    });
+};
 
 const ColumnChooser = () => {
     const [modal18, setModal18] = useState(false);
@@ -68,13 +61,11 @@ const ColumnChooser = () => {
     useEffect(() => {
         async function fetchModels() {
             try {
-                const agent = new HttpAgent({ host: "http://127.0.0.1:4943" });
+                const agent = new HttpAgent({ host: "http://127.0.0.1:4943", verifyQuerySignatures: false });
                 await agent.fetchRootKey(); //Disable certificate verification
                 
                 const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
                 const modelsData: any = await modelTrackerBackend.getModels();
-
-                console.log("Models from backend: ", modelsData);
 
                 if (modelsData && modelsData.length > 0) {
                     // Map backend data to the format expected by the table
@@ -95,7 +86,7 @@ const ColumnChooser = () => {
                     setUseBackendData(true); // Use backend data if available
                 }
             } catch (error) {
-                console.error("Failed to fetch models: ", error);
+                coloredToast('danger');
             }
         }
 
@@ -117,7 +108,7 @@ const ColumnChooser = () => {
         columnAccessor: 'id',
         direction: 'asc',
     });
-    const [hideCols, setHideCols] = useState<any>(['age', 'dob', 'isActive']);
+    const [hideCols, setHideCols] = useState<any>(['age', 'dob',]);
 
     const formatDate = (date: any) => {
         if (date) {
@@ -141,7 +132,7 @@ const ColumnChooser = () => {
         { accessor: 'id', title: 'ID' },
         { accessor: 'model_image', title: 'Image' },
         { accessor: 'model_name', title: 'Name' },
-        { accessor: 'model_version', title: 'Version' },
+        // { accessor: 'model_version', title: 'Version' },
         { accessor: 'model_provider', title: 'Provider' },
         { accessor: 'model_link', title: 'Link' },
         { accessor: 'model_desc', title: 'Description' },
@@ -238,10 +229,6 @@ const ColumnChooser = () => {
                                                                 checked={!hideCols.includes(col.accessor)}
                                                                 className="form-checkbox"
                                                                 defaultValue={col.accessor}
-                                                                // onChange={(event: any) => {
-                                                                //     setHideCols(event.target.value);
-                                                                //     showHideColumns(col.accessor, event.target.checked);
-                                                                // }}
                                                                 onChange={() => showHideColumns(col.accessor)}
                                                             />
                                                             <span className="ltr:ml-2 rtl:mr-2">{col.title}</span>
@@ -272,12 +259,11 @@ const ColumnChooser = () => {
                             },
                             {
                                 accessor: 'model_image',
-                                title: 'Image',
+                                title: 'Logo',
                                 sortable: true,
                                 render: ({ model_image }) => (
                                     <div className="flex items-center gap-2">
                                         <img onClick={() => setModal18(true)} src={`${model_image}`} className="h-9 w-9 max-w-none rounded-md" alt="model image" />
-                                        
                                     </div>
                                 ),
                                 hidden: hideCols.includes('model_image'),
@@ -288,12 +274,12 @@ const ColumnChooser = () => {
                                 sortable: true,
                                 hidden: hideCols.includes('model_name'),
                             },
-                            {
-                                accessor: 'model_version',
-                                title: 'Version',
-                                sortable: true,
-                                hidden: hideCols.includes('model_version'),
-                            },
+                            // {
+                            //     accessor: 'model_version',
+                            //     title: 'Version',
+                            //     sortable: true,
+                            //     hidden: hideCols.includes('model_version'),
+                            // },
                             {
                                 accessor: 'model_provider',
                                 title: 'Provider',
@@ -432,15 +418,8 @@ const ColumnChooser = () => {
                                             <Tab.Panels className="text-sm">
                                                 <Tab.Panel>
                                                     <div className="active pt-5">
-                                                        <h4 className="mb-4 text-2xl font-semibold">We move your world!</h4>
-                                                        <p className="mb-4">
-                                                        Purpose: Provides a general introduction to the AI model. Content: Model name and type (e.g., generative language model, image classifier) 
-                                                        Brief description of its capabilities and applications Key features and benefits
-                                                        </p>
-                                                        <p>
-                                                            Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna
-                                                            aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-                                                        </p>
+                                                        <h4 className="mb-4 text-2xl font-semibold">Coming soon!</h4>
+                                                        <p>This section is under development. Check back later &#128512;.</p>
                                                     </div>
                                                 </Tab.Panel>
                                                 <Tab.Panel>
@@ -448,30 +427,21 @@ const ColumnChooser = () => {
                                                         <div className="flex items-start pt-5">
                                                             <div className="h-20 w-20 flex-none ltr:mr-4 rtl:ml-4">
                                                                 <img
-                                                                    src="/assets/images/profile-34.jpeg"
+                                                                    src="/assets/images/minions.png"
                                                                     alt="img"
                                                                     className="m-0 h-20 w-20 rounded-full object-cover ring-2 ring-[#ebedf2] dark:ring-white-dark"
                                                                 />
                                                             </div>
                                                             <div className="flex-auto">
-                                                                <h5 className="mb-4 text-xl font-medium">Media heading</h5>
-                                                                <p className="text-white-dark">
-                                                                    Cras sit amet nibh libero, in gravida nulla. Nulla vel metus scelerisque ante sollicitudin. Cras purus odio,
-                                                                    vestibulum in vulputate at, tempus viverra turpis. Fusce condimentum nunc ac nisi vulputate fringilla. Donec
-                                                                    lacinia congue felis in faucibus.
-                                                                </p>
+                                                                <h5 className="mb-4 text-xl font-medium">Coming soon!</h5>
+                                                                <p>This section is under development. Check back later &#128512;.</p>
                                                             </div>
                                                         </div>
                                                     </div>
                                                 </Tab.Panel>
                                                 <Tab.Panel>
                                                     <div className="pt-5">
-                                                        <p>
-                                                            Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eiusmod tempor incididunt ut labore et dolore magna
-                                                            aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.
-                                                            Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur
-                                                            sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
-                                                        </p>
+                                                    <p>This section is under development. Check back later &#128512;.</p>
                                                     </div>
                                                 </Tab.Panel>
                                             </Tab.Panels>

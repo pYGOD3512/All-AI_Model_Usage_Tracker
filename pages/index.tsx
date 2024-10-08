@@ -23,6 +23,8 @@ import { Navigation, Pagination, Autoplay } from 'swiper';
 // CANISTER CONNECTION
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { idlFactory } from '../lib/model_tracker_backend.did'; 
+import IconCaretDown from '@/components/Icon/IconCaretDown';
+import React from 'react';
 
 const canisterId: any = process.env.NEXT_PUBLIC_BACKEND_CANISTER_ID;
 
@@ -48,6 +50,9 @@ const Index = () => {
     const [topModels, setTopModels] = useState<any[]>([]);
     const [pieChartData, setPieChartData] = useState<any>(null);
 
+    const [visibleModels, setVisibleModels] = useState<string[]>([]);
+    const [dropdownModels, setDropdownModels] = useState<string[]>([]);
+
     const items = [
         {
             src: 'carousel1.jpeg',
@@ -70,15 +75,12 @@ const Index = () => {
     useEffect(() => {
         async function fetchModels() {
             try {
-                const agent = new HttpAgent({ host: "http://127.0.0.1:4943" });
+                const agent = new HttpAgent({ host: "http://127.0.0.1:4943", verifyQuerySignatures: false });
                 await agent.fetchRootKey(); //Disable certificate verification
                 
                 const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
                 const modelsData: any = await modelTrackerBackend.getModels();
                 const modelUsageData: any = await modelTrackerBackend.getModelUsage();
-
-                console.log("Models: ", modelsData);
-                console.log("Model Usage: ", modelUsageData);
 
                 if (modelsData && modelsData.length > 0) {
                     // Map backend data to the format expected by the table
@@ -103,17 +105,25 @@ const Index = () => {
                     setTopModels(topModelsData);
                 }
 
+                // Initially show only the first 6 models in the chart
+                const firstSixModelNames = modelUsageData.slice(0, 3).map((model: any) => model.name);
+                setVisibleModels(firstSixModelNames);
+
+                // Set all models for dropdown
+                const allModelNames = modelUsageData.map((model: any) => model.name);
+                setDropdownModels(allModelNames);
+
                 setModelUsage(modelUsageData); 
 
             } catch (error) {
-                coloredToast('danger')
+                coloredToast('danger');
             }
         }
 
         fetchModels();
     }, []);
 
-    console.log(topModels,'top models')
+    // console.log(topModels,'top models')
 
     // GETTING MODEL AND USAGES ----------- END
 
@@ -165,6 +175,18 @@ const Index = () => {
         setIsMounted(true);
     });
 
+    const handleModelToggle = (modelName: string) => {
+        setVisibleModels(prevVisibleModels => {
+            if (prevVisibleModels.includes(modelName)) {
+                // If model is currently visible, remove it
+                return prevVisibleModels.filter((name) => name !== modelName);
+            } else {
+                // If model is not visible, add it
+                return [...prevVisibleModels, modelName];
+            }
+        });
+    };
+
     // LINE CHART FUNCTIONS --------- START
     const getAllTimestamps = (modelData: any[]) => {   //  Function to get timestamps from all models
         const timestampsSet = new Set<string>();
@@ -201,7 +223,14 @@ const Index = () => {
     
     const allTimestamps = getAllTimestamps(modelUsage);   //  Get timestamps from all models
     
-    const transformedSeries = transformDataWithNulls(modelUsage, allTimestamps);   // Transform the data to include nulls for missing data
+    // const transformedSeries = transformDataWithNulls(modelUsage, allTimestamps);  
+
+    const getFilteredSeries = () => {
+        const filteredModelUsage = modelUsage.filter((model: any) => visibleModels.includes(model.name));   // Filter the series data based on the visible models
+    
+        // Return the transformed data for the filtered models
+        return transformDataWithNulls(filteredModelUsage, allTimestamps);
+    };
 
     const colorPalette = isDark
     ? ['#2196F3', '#E7515A', '#FF9800', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF5722', '#673AB7', '#3F51B5']
@@ -212,7 +241,7 @@ const Index = () => {
     
     // Line Chart Configuration
     const revenueChart: any = {
-        series: transformedSeries,
+        series: getFilteredSeries(),
         options: {
             chart: {
                 height: 325,
@@ -241,7 +270,7 @@ const Index = () => {
                 left: -7,
                 top: 22,
             },
-            colors: transformedSeries.map((_, index) => getColorForLine(index)),
+            colors: getFilteredSeries().map((_, index) => getColorForLine(index)),
             markers: {
                 size: 0,
             },
@@ -354,26 +383,29 @@ const Index = () => {
 
     // PIE CHART FUNCTIONS --------- START
     
-    const getChartData = (usageData: any) => {   // Transform the fetched model usage data to the chart format
+    const getChartData = (usageData: any, visibleModels: any) => {   // Transform the fetched model usage data to the chart format
         const pie_series: number[] = [];
         const pie_lables: string[] = [];
 
         // Iterate through each model's usage data
-        usageData.forEach((model: any) => {
-        // Sum up all requests for the model
-        const totalRequests = model.usageRecords
-        ? model.usageRecords.reduce(
-            (acc: number, record: any) => acc + Number(record.requests),
-            0
-        )
-        : 0;  // If there are no usageRecords, set totalRequests to 0
+        usageData
+        .filter((model: any) => visibleModels.includes(model.name))  // Only include visible models
+        .forEach((model: any) => {
+            // Sum up all requests for the model
+            const totalRequests = model.usageRecords
+                ? model.usageRecords.reduce(
+                    (acc: number, record: any) => acc + Number(record.requests),
+                    0
+                )
+                : 0;  // If there are no usageRecords, set totalRequests to 0
 
-        // Add the summed data to the series array
-        pie_series.push(totalRequests);
+            // Add the summed data to the series array
+            pie_series.push(totalRequests);
 
-        // Add the model name to the labels array
-        pie_lables.push(model.name);
+            // Add the model name to the labels array
+            pie_lables.push(model.name);
         });
+
 
 
         // Return chart data in the expected format
@@ -384,7 +416,7 @@ const Index = () => {
     };
 
     // Now, use getChartData to dynamically update the salesByCategory
-    const { pie_series, pie_lables } = getChartData(modelUsage);
+    const { pie_series, pie_lables } = getChartData(modelUsage, visibleModels);
 
     //Pie Chart Configuration
     const salesByCategory: any = {
@@ -403,7 +435,7 @@ const Index = () => {
                 width: 25,
                 colors: isDark ? '#0e1726' : '#fff',
             },
-            colors: transformedSeries.map((_, index) => getColorForLine(index)),
+            colors: getFilteredSeries().map((_, index) => getColorForLine(index)),
             legend: {
                 position: 'bottom',
                 horizontalAlign: 'center',
@@ -425,12 +457,12 @@ const Index = () => {
                             show: true,
                             name: {
                                 show: true,
-                                fontSize: '29px',
+                                fontSize: '18px',
                                 offsetY: -10,
                             },
                             value: {
                                 show: true,
-                                fontSize: '26px',
+                                fontSize: '22px',
                                 color: isDark ? '#bfc9d4' : undefined,
                                 offsetY: 16,
                                 formatter: (val: any) => {
@@ -441,7 +473,7 @@ const Index = () => {
                                 show: true,
                                 label: 'Total',
                                 color: '#888ea8',
-                                fontSize: '29px',
+                                fontSize: '18px',
                                 formatter: (w: any) => {
                                     return w.globals.seriesTotals.reduce(function (a: any, b: any) {
                                         return a + b;
@@ -474,41 +506,64 @@ const Index = () => {
     return (
         <>
             <div>
-                <ul className="flex space-x-2 rtl:space-x-reverse">
-                    <li>
-                        <Link href="/" className="text-primary hover:underline">
-                            Dashboard
-                        </Link>
-                    </li>
-                    <li className="before:content-['/'] ltr:before:mr-2 rtl:before:ml-2">
-                        <span>Overview</span>
-                    </li>
-                </ul>
+                <div className='flex items-center justify-between'>
+                    <ul className="flex space-x-2 rtl:space-x-reverse">
+                        <li>
+                            <Link href="/" className="text-primary hover:underline">
+                                Dashboard
+                            </Link>
+                        </li>
+                        <li className="before:content-['/'] ltr:before:mr-2 rtl:before:ml-2">
+                            <span>Overview</span>
+                        </li>
+                    </ul>
+                    <div className="dropdown">
+                        <Dropdown
+                            offset={[0, 1]}
+                            placement={`${isRtl ? 'bottom-start' : 'bottom-end'}`}
+                            btnClassName="!flex items-center border font-semibold border-white-light dark:border-[#253b5c] rounded-md px-4 py-2 text-sm dark:bg-[#1b2e4b] dark:text-white-dark"
+                            button={
+                                <>
+                                    <span className="ltr:mr-1 rtl:ml-1">View / Hide</span>
+                                    <IconCaretDown className="w-5 h-5" />
+                                </>
+                            }
+                        >
+                            <ul className="!min-w-[220px]">
+                            <PerfectScrollbar className="relative mb-4 h-[230px] ltr:-mr-3 ltr:pr-3 rtl:-ml-3 rtl:pl-3" options={{suppressScrollX: true}}>
+                                {dropdownModels.map((modelName) => (
+                                    <li 
+                                    className="flex flex-col"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                    }}
+                                    key={modelName}
+                                    >
+                                        <div className="flex items-center px-4 py-1">
+                                            <label className="mb-0 cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={visibleModels.includes(modelName)}
+                                                    className="form-checkbox"
+                                                    // defaultValue={col.accessor}
+                                                    onChange={() => handleModelToggle(modelName)}
+                                                />
+                                                <span className="ltr:ml-2 rtl:mr-2">{modelName}</span>
+                                            </label>
+                                        </div>
+                                    </li>
+                                ))}
+                                </PerfectScrollbar>
+                            </ul>
+                        </Dropdown>
+                    </div>
+                </div>
 
                 <div className="pt-5">
                     <div className="mb-6 grid gap-6 xl:grid-cols-3">
                         <div className="panel h-full xl:col-span-2">
                             <div className="mb-5 flex items-center justify-between dark:text-white-light">
                                 <h5 className="text-lg font-semibold">Model Usage</h5>
-                                <div className="dropdown">
-                                    <Dropdown
-                                        offset={[0, 1]}
-                                        placement={`${isRtl ? 'bottom-start' : 'bottom-end'}`}
-                                        button={<IconHorizontalDots className="text-black/70 dark:text-white/70 hover:!text-primary" />}
-                                    >
-                                        <ul>
-                                            <li>
-                                                <button type="button">Weekly</button>
-                                            </li>
-                                            <li>
-                                                <button type="button">Monthly</button>
-                                            </li>
-                                            <li>
-                                                <button type="button">Yearly</button>
-                                            </li>
-                                        </ul>
-                                    </Dropdown>
-                                </div>
                             </div>
                             <div className="relative">
                                 <div className="rounded-lg bg-white dark:bg-black">
@@ -516,7 +571,10 @@ const Index = () => {
                                         <ReactApexChart series={revenueChart.series} options={revenueChart.options} type="area" height={325} width={'100%'} />
                                     ) : (
                                         <div className="grid min-h-[325px] place-content-center bg-white-light/30 dark:bg-dark dark:bg-opacity-[0.08] ">
-                                            <span className="inline-flex h-5 w-5 animate-spin rounded-full  border-2 border-black !border-l-transparent dark:border-white"></span>
+                                            {/* <span className="inline-flex h-5 w-5 animate-spin rounded-full  border-2 border-black !border-l-transparent dark:border-white"></span> */}
+                                            <span className="w-5 h-5 m-auto mb-10">
+                                                <span className="animate-ping inline-flex h-full w-full rounded-full bg-info"></span>
+                                            </span>
                                         </div>
                                     )}
                                 </div>
@@ -524,7 +582,7 @@ const Index = () => {
                         </div>
 
                         <div className="panel h-full">
-                            <div className="mb-5 flex items-center">
+                            <div className="mb-5 flex items-center justify-between">
                                 <h5 className="text-lg font-semibold dark:text-white-light">Total Usage</h5>
                             </div>
                             
@@ -544,8 +602,9 @@ const Index = () => {
 
                     <div className="mb-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
                         <div className="panel pb-1 h-full sm:col-span-2 xl:col-span-1">
-                            <div className="mb-5 flex items-center justify-between dark:text-white-light">
+                            <div className="mb-5 flex items-center justify-start gap-2 dark:text-white-light">
                                 <h5 className="text-lg font-semibold">Top used models</h5>
+                                <p className=" text-white-dark dark:text-gray-500 text-sm">[ Last 5hrs ]</p>
                             </div>
                             <PerfectScrollbar className="relative mb-4 h-[230px] ltr:-mr-3 ltr:pr-3 rtl:-ml-3 rtl:pl-3" options={{suppressScrollX: true}}>
                                 <div>
@@ -561,7 +620,7 @@ const Index = () => {
                                             />
                                             <div className="flex-1 px-3">
                                                 {/* Model Name */}
-                                                <div>{model.model_name} {model.model_version}</div>
+                                                <div>{model.model_name}</div>
                                                 {/* Model Provider */}
                                                 <div className="text-xs text-white-dark dark:text-gray-500">{model.model_provider}</div>
                                             </div>
@@ -573,22 +632,25 @@ const Index = () => {
                                         ))}
                                     </div>
                                 </div>
+                                {topModels.length > 5 ? (
+                                    <div className="border-t border-white-light dark:border-white/10">
+                                        <button type="button" className="group group flex w-full items-center justify-center p-1 font-semibold hover:text-primary">
+                                            <Link href="/analytics">View All Models</Link>
+                                            <IconArrowLeft className="rtl:rotate-180 group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition duration-300 ltr:ml-1 rtl:mr-1" />
+                                        </button>
+                                    </div>
+                                ) : (''
+                                ) }
                             </PerfectScrollbar>
-                            <div className="border-t border-white-light dark:border-white/10">
-                                <button type="button" className="group group flex w-full items-center justify-center p-1 font-semibold hover:text-primary">
-                                    <Link href="/analytics">View All Models</Link>
-                                    <IconArrowLeft className="rtl:rotate-180 group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition duration-300 ltr:ml-1 rtl:mr-1" />
-                                </button>
-                            </div>
                         </div>
 
-                        <div className="panel h-full lg:col-span-2">
+                        <div className="panel p-0 h-full lg:col-span-2">
                             <Swiper modules={[Pagination, Autoplay]} pagination={{ clickable: true }} autoplay={{ delay: 5000 }} direction="vertical" className="mx-auto max-w-full" id="slider3">
                                 <div className="swiper-wrapper">
                                 {items.map((item, i) => {
                                     return (
                                         <SwiperSlide key={i}>
-                                            <img src={`/assets/images/${item.src}`} className="w-full max-h-80 object-cover" alt="itemImage" />
+                                            <img src={`/assets/images/${item.src}`} className="w-full max-h-full object-cover rounded-md" alt="itemImage" />
                                                 <div className="absolute z-[999] text-white top-1/4 ltr:left-12 rtl:right-12">
                                                     <div className="sm:text-3xl text-base font-bold">{item.big_text}</div>
                                                     <div className="sm:mt-5 mt-1 w-4/5 text-base sm:block hidden font-medium">

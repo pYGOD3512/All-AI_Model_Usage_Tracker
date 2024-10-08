@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Fragment, SetStateAction } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '../store';
 import Link from 'next/link';
@@ -12,12 +12,17 @@ import PerfectScrollbar from 'react-perfect-scrollbar';
 const ReactApexChart = dynamic(() => import('react-apexcharts'), {
     ssr: false,
 });
+
 import Swal from 'sweetalert2';
+import { Dialog, Transition } from '@headlessui/react';
+import CountUp from 'react-countup';
+
 
 // CANISTER CONNECTION
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { idlFactory } from '../lib/model_tracker_backend.did'; 
 import IconBell from '@/components/Icon/IconBell';
+import React from 'react';
 
 const canisterId: any = process.env.NEXT_PUBLIC_BACKEND_CANISTER_ID;
 
@@ -47,8 +52,12 @@ const Analytics = () => {
 
     const [isMounted, setIsMounted] = useState(false);
     const [currentCoin, setCurrentCoin] = useState<any>(null);  // Updated to handle dynamic data
-    const [isShowCryptoMenu, setIsShowCryptoMenu] = useState(false);
     const [modelUsage, setModelUsage] = useState<any[]>([]);
+
+    const [customHours, setCustomHours] = useState<number>(1);  // Custom input for hours
+    const [selectedTimeRange, setSelectedTimeRange] = useState<string | number>('1week'); 
+    const [availableHours, setAvailableHours] = useState<number>(0);  // Keep track of available data length
+    const [modal11, setModal11] = useState(false);
 
     useEffect(() => {
         setIsMounted(true);
@@ -58,18 +67,16 @@ const Analytics = () => {
         useEffect(() => {
             async function fetchModels() {
                 try {
-                    const agent = new HttpAgent({ host: "http://127.0.0.1:4943" });
+                    const agent = new HttpAgent({ host: "http://127.0.0.1:4943", verifyQuerySignatures: false });
                     await agent.fetchRootKey(); //Disable certificate verification
                     
                     const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
                     const modelUsageData: any = await modelTrackerBackend.getModelUsage();
-    
-                    console.log("Model Usage: ", modelUsageData);
 
                     // Transform canister response to match chart structure
                     const transformedCoins = modelUsageData.map((model: any, index: number) => ({
                         id: index + 1,
-                        title: model.name,  // Use model.name or model_uid as title
+                        title: model.name, 
                         series: [
                             {   
                                 name: model.name,
@@ -85,6 +92,7 @@ const Analytics = () => {
                     setModelUsage(transformedCoins); 
                     if (transformedCoins.length > 0) {
                         setCurrentCoin(transformedCoins[0]);  // Set default to the first model
+                        setAvailableHours(transformedCoins[0].series[0].data.length);  // Set the available hours for custom input
                     }
 
                 } catch (error) {
@@ -94,13 +102,55 @@ const Analytics = () => {
             fetchModels();
         }, [canisterId]);
 
-        console.log('ddddd', modelUsage)
+        const timeOptions = [
+            { value: '1day', label: '1 Day Ago' },
+            { value: '1week', label: '1 Week Ago' },
+            { value: '1month', label: '1 Month Ago' },
+            { value: '1year', label: '1 Year Ago' },
+        ];
+
+        // Handle time-based filtering
+        const getFilteredUsageData = (coin: any) => {
+            if (!coin || !coin.series || !coin.series[0]) return { x: '', y: 'No Data' };
+
+            let hoursToSum = 1;
+
+            if (selectedTimeRange === 'custom') {
+                hoursToSum = Math.min(customHours, availableHours);  // Limit by available data
+            } else if (selectedTimeRange === '1day') {
+                hoursToSum = Math.min(24, availableHours);
+            } else if (selectedTimeRange === '1week') {
+                hoursToSum = Math.min(24 * 7, availableHours);
+            } else if (selectedTimeRange === '1month') {
+                hoursToSum = Math.min(24 * 30, availableHours);
+            } else if (selectedTimeRange === '1year') {
+                hoursToSum = Math.min(24 * 365, availableHours);
+            }
+
+            const dataPoints = coin.series[0].data.slice(-hoursToSum);
+            const totalRequests = dataPoints.reduce((sum: number, point: any) => sum + point.y, 0);
+
+            // return filteredSeriesData;
+            return { x: `${hoursToSum} hour(s) ago`, y: totalRequests, dataPoints };
+        };
+        
+
+        // Determine the button label
+        const getButtonLabel = () => {
+            if (selectedTimeRange === 'custom') {
+                return `${customHours} hr(s) ago`;
+            }
+            const selectedOption = timeOptions.find(option => option.value === selectedTimeRange);
+            return selectedOption ? selectedOption.label : '1 hr(s) ago';
+        };
+
+        const currentFilteredData = getFilteredUsageData(currentCoin);
 
         const getTotalUsage = (item: any) => {
             if (item.series && item.series.length > 0) {
                 const totalUsage = item.series[0].data.reduce((sum: number, dataPoint: any) => {
-                    return sum + dataPoint.y; // Summing all y (usage) values
-                }, 0); // Initial sum is 0
+                    return sum + dataPoint.y;
+                }, 0);
                 return totalUsage;
             }
             return 'No Data';
@@ -313,6 +363,7 @@ const Analytics = () => {
                 },
             ],
         },
+    
     };
     return (
         <div>
@@ -377,11 +428,45 @@ const Analytics = () => {
                         <div className="flex flex-1 items-start ltr:pr-4 rtl:pl-4">
                             <div>
                                 <div className="flex items-center">
-                                    <div className="text-md font-semibold ltr:mr-1 rtl:ml-1">{currentCoin?.title}</div>
-                                    <p className="text-xs text-success">[1hr ago]</p>
+                                    <div className="text-lg font-semibold ltr:mr-1 rtl:ml-1">{currentCoin?.title}</div>
+                                    <div className="dropdown">
+                                    <Dropdown
+                                        placement={`${isRtl ? 'bottom-start' : 'bottom-end'}`}
+                                        btnClassName="btn btn-outline-dark btn-sm dropdown-toggle"
+                                        button={
+                                            <>
+                                                <span className='text-primary'>{getButtonLabel()}</span>
+                                                <span>
+                                                    <IconCaretDown className="ltr:ml-1 rtl:mr-1 inline-block" />
+                                                </span>
+                                            </>
+                                        }
+                                        onChange={(e: any) => setSelectedTimeRange(e.target.value)}
+                                    >
+                                        <ul className="!min-w-[130px]">
+                                            {timeOptions.map(option => (
+                                                <li key={option.value} value={option.value}>
+                                                     <button type="button" onClick={() => setSelectedTimeRange(option.value)}>{option.label}</button>
+                                                </li>
+                                            ))}
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {setModal11(true)}}
+                                                    >
+                                                        Custom
+                                                    </button>
+                                                </li>
+                                        </ul>
+                                    </Dropdown>
+                                    </div>
+                                    {/* <p className="text-xs text-success">[1hr ago]</p> */}
                                 </div>
-                                <div className={`mt-2 flex items-center ${ 'text-success' }`}>
-                                    <div className="min-w-20 text-2xl ltr:mr-3 rtl:ml-3">{currentCoin?.series[0].data[currentCoin?.series[0].data.length - 1].y}</div>
+                                <div className={`mt-2 flex items-center ${ 'text-primary' }`}>
+                                    {/* <div className="min-w-20 text-2xl ltr:mr-3 rtl:ml-3">{currentCoin ? currentFilteredData.y: ''}</div> */}
+                                    <div>
+                                        <CountUp start={0} end={currentFilteredData.y} duration={1} className="text-primary text-xl sm:text-3xl text-center"></CountUp>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -393,9 +478,53 @@ const Analytics = () => {
                         </ul>
                     </div>
                     {/*  selected chart  */}
-                    {currentCoin && <ReactApexChart series={currentCoin.series} options={selectedBitCoinChart.options} type="line" height={411} width={'100%'} />}
-                    </div>
+                    {currentCoin && <ReactApexChart series={[ { name: currentCoin.title, data: currentFilteredData.dataPoints.map((point: any) => ({ x: point.x, y: point.y })), } ]} options={selectedBitCoinChart.options} type="line" height={411} width={'100%'} />}
+                </div>
             </div>
+            <Transition appear show={modal11} as={Fragment}>
+                <Dialog as="div" open={modal11} onClose={() => setModal11(false)}>
+                    <Transition.Child
+                        as={Fragment}
+                        enter="ease-out duration-300"
+                        enterFrom="opacity-0"
+                        enterTo="opacity-100"
+                        leave="ease-in duration-200"
+                        leaveFrom="opacity-100"
+                        leaveTo="opacity-0"
+                    >
+                        <div className="fixed inset-0" />
+                    </Transition.Child>
+                    <div id="fadein_left_modal" className="fixed inset-0 bg-[black]/60 z-[999] overflow-y-auto">
+                        <div className="flex items-center justify-center min-h-screen px-4">
+                            <Dialog.Panel className="panel border-0 p-0 rounded-lg overflow-hidden w-full max-w-lg my-8 text-black dark:text-white-dark animate__animated animate__fadeInUp">
+                                <div className="flex bg-[#fbfbfb] dark:bg-[#121c2c] items-center justify-between px-5 py-3">
+                                    <h5 className="font-bold text-lg">Custom</h5>
+                                </div>
+                                <div className="p-5">
+                                        <li className='flex justify-center items-center gap-3'>
+                                            <input
+                                            type="number"
+                                            value={customHours}
+                                            onChange={(e) => setCustomHours(parseInt(e.target.value))}
+                                            className="max-w-[8rem] form-input"
+                                            min="1"
+                                            />
+                                            <span>hr(s)</span>
+                                        </li>
+                                    <div className="flex justify-end items-center mt-8">
+                                        <button onClick={() => {setModal11(false); setSelectedTimeRange('')}} type="button" className="btn btn-outline-danger">
+                                            Close
+                                        </button>
+                                        <button onClick={() => {setModal11(false); setSelectedTimeRange('custom')}} type="button" className="btn btn-primary ltr:ml-4 rtl:mr-4">
+                                            Save
+                                        </button>
+                                    </div>
+                                </div>
+                            </Dialog.Panel>
+                        </div>
+                    </div>
+                </Dialog>
+            </Transition>
         </div>
     );
 };

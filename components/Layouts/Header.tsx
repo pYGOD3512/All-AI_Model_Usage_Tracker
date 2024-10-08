@@ -32,6 +32,7 @@ import IconMenuDatatables from '@/components/Icon/Menu/IconMenuDatatables';
 import IconMenuForms from '@/components/Icon/Menu/IconMenuForms';
 import IconMenuPages from '@/components/Icon/Menu/IconMenuPages';
 import IconMenuMore from '@/components/Icon/Menu/IconMenuMore';
+import React from 'react';
 
 const Header = () => {
     const router = useRouter();
@@ -154,7 +155,11 @@ const Header = () => {
                 <div className="relative flex w-full items-center bg-white px-5 py-2.5 dark:bg-black">
                     <div className="horizontal-logo flex items-center justify-between ltr:mr-2 rtl:ml-2 lg:hidden">
                         <Link href="/" className="main-logo flex shrink-0 items-center">
+                        {themeConfig.theme === 'light' ? (
+                             <img className="inline w-28 ltr:-ml-1 rtl:-mr-1" src="/assets/images/logo_1.png" alt="logo" />
+                        ) : (
                             <img className="inline w-28 ltr:-ml-1 rtl:-mr-1" src="/assets/images/logo.svg" alt="logo" />
+                        )}
                         </Link>
                         <button
                             type="button"

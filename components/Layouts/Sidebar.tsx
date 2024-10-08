@@ -90,7 +90,11 @@ const Sidebar = () => {
                 <div className="h-full bg-white dark:bg-black">
                     <div className="flex items-center justify-between px-4 py-3">
                         <Link href="/" className="main-logo flex shrink-0 items-center">
-                            <img className="ml-[5px] w-28 flex-none" src="/assets/images/logo.svg" alt="logo" />
+                            {themeConfig.theme === 'light' ? (
+                                <img className="inline w-28 ltr:-ml-1 rtl:-mr-1" src="/assets/images/logo_1.png" alt="logo" />
+                            ) : (
+                                <img className="inline w-28 ltr:-ml-1 rtl:-mr-1" src="/assets/images/logo.svg" alt="logo" />
+                            )}
                         </Link>
 
                         <button
