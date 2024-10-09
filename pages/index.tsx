@@ -1,4 +1,4 @@
-import { useEffect, useState, Fragment } from 'react';
+import { useEffect, useState, Fragment, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '../store';
 import PerfectScrollbar from 'react-perfect-scrollbar';
@@ -19,10 +19,9 @@ import 'swiper/css/navigation';
 import 'swiper/css/pagination';
 import { Navigation, Pagination, Autoplay } from 'swiper';
 
-
 // CANISTER CONNECTION
 import { Actor, HttpAgent } from '@dfinity/agent';
-import { idlFactory } from '../lib/model_tracker_backend.did'; 
+import { idlFactory } from '../lib/model_tracker_backend.did';
 import IconCaretDown from '@/components/Icon/IconCaretDown';
 import React from 'react';
 
@@ -53,75 +52,96 @@ const Index = () => {
     const [visibleModels, setVisibleModels] = useState<string[]>([]);
     const [dropdownModels, setDropdownModels] = useState<string[]>([]);
 
+    const [lastUpdateTime, setLastUpdateTime] = useState<Date | null>(null);
+
     const items = [
         {
             src: 'carousel1.jpeg',
             big_text: 'Unleash the Power of AI Synergy',
-            small_text: 'Alle-AI brings together the best of multiple AI models, allowing you to harness their combined power for unparalleled results'
+            small_text: 'Alle-AI brings together the best of multiple AI models, allowing you to harness their combined power for unparalleled results',
         },
         {
             src: 'carousel2.jpeg',
             big_text: 'Fact-Checking and Summarization in One',
-            small_text: "Alle-AI's integrated approach to fact-checking and summarization delivers superior results."
+            small_text: "Alle-AI's integrated approach to fact-checking and summarization delivers superior results.",
         },
         {
             src: 'carousel3.jpeg',
             big_text: 'Ignite Your Imagination',
-            small_text: "You can turn your thoughts into stunning visuals with powerful on Alle-AI"
+            small_text: 'You can turn your thoughts into stunning visuals with powerful on Alle-AI',
         },
     ];
-    
+
     // GETTING MODELS AND USAGES ----------- START
-    useEffect(() => {
-        async function fetchModels() {
-            try {
-                const agent = new HttpAgent({ host: "http://127.0.0.1:4943", verifyQuerySignatures: false });
-                await agent.fetchRootKey(); //Disable certificate verification
-                
-                const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
-                const modelsData: any = await modelTrackerBackend.getModels();
-                const modelUsageData: any = await modelTrackerBackend.getModelUsage();
+    // Wrap fetchModels in useCallback to memoize it
+    const fetchModels = useCallback(async () => {
+        try {
+            const agent = new HttpAgent({ host: process.env.NEXT_PUBLIC_LOCAL_HOST, verifyQuerySignatures: false });
+            await agent.fetchRootKey(); //Disable certificate verification
 
-                if (modelsData && modelsData.length > 0) {
-                    // Map backend data to the format expected by the table
-                    const mappedModels = modelsData.map((model: any, index: number) => ({
-                        id: index + 1,
-                        model_image: model.image,
-                        model_name: model.name,
-                        model_version: model.version,
-                        dob: 'N/A',
-                        model_desc: model.description,
-                        model_provider: model.provider,
-                        isActive: true,
-                        age: 'N/A',
-                        model_link: model.link,
-                        model_uid: model.model_uid,
-                    }));
+            const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
+            const modelsData: any = await modelTrackerBackend.getModels();
+            const modelUsageData: any = await modelTrackerBackend.getModelUsage();
 
-                    setModels(mappedModels);
+            if (modelsData && modelsData.length > 0) {
+                // Map backend data to the format expected by the table
+                const mappedModels = modelsData.map((model: any, index: number) => ({
+                    id: index + 1,
+                    model_image: model.image,
+                    model_name: model.name,
+                    model_version: model.version,
+                    dob: 'N/A',
+                    model_desc: model.description,
+                    model_provider: model.provider,
+                    isActive: true,
+                    age: 'N/A',
+                    model_link: model.link,
+                    model_uid: model.model_uid,
+                }));
 
-                    // Process and find top 10 models by usage in the last 5 hours
-                    const topModelsData = getTopModelsByUsage(modelUsageData, mappedModels);
-                    setTopModels(topModelsData);
-                }
+                setModels(mappedModels);
 
-                // Initially show only the first 6 models in the chart
-                const firstSixModelNames = modelUsageData.slice(0, 3).map((model: any) => model.name);
-                setVisibleModels(firstSixModelNames);
-
-                // Set all models for dropdown
-                const allModelNames = modelUsageData.map((model: any) => model.name);
-                setDropdownModels(allModelNames);
-
-                setModelUsage(modelUsageData); 
-
-            } catch (error) {
-                coloredToast('danger');
+                // Process and find top 10 models by usage in the last 5 hours
+                const topModelsData = getTopModelsByUsage(modelUsageData, mappedModels);
+                setTopModels(topModelsData);
             }
-        }
 
+            // Initially show only the first 6 models in the chart
+            const firstSixModelNames = modelUsageData.slice(0, 3).map((model: any) => model.name);
+            setVisibleModels(firstSixModelNames);
+
+            // Set all models for dropdown
+            const allModelNames = modelUsageData.map((model: any) => model.name);
+            setDropdownModels(allModelNames);
+
+            setModelUsage(modelUsageData);
+
+            // Find the most recent timestamp across all models
+            if (modelUsageData.length > 0) {
+                const latestTimestamp = modelUsageData.reduce((latest: Date, model: any) => {
+                    const modelLatest = new Date(Math.max(...model.usageRecords.map((record: any) => new Date(record.timestamp).getTime())));
+                    return modelLatest > latest ? modelLatest : latest;
+                }, new Date(0));
+
+                setLastUpdateTime(latestTimestamp);
+            }
+        } catch (error) {
+            coloredToast('danger');
+        }
+    }, []); // Empty dependency array as it doesn't depend on any props or state
+
+    useEffect(() => {
+        // Initial fetch
         fetchModels();
-    }, []);
+
+        // Set up interval to fetch every hour
+        const intervalId = setInterval(() => {
+            fetchModels();
+        }, 60* 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
+
+        // Clean up interval on component unmount
+        return () => clearInterval(intervalId);
+    }, [fetchModels]); // Add fetchModels as a dependency
 
     // console.log(topModels,'top models')
 
@@ -131,26 +151,26 @@ const Index = () => {
     const getTopModelsByUsage = (usageData: any, modelsData: any) => {
         // Map usage data and calculate the last 5 hours usage
         const modelsUsageMap = usageData.map((modelUsage: any) => {
-        // Get last 5 hours of usage and sum the requests
-        const lastFiveUsage = modelUsage.usageRecords
-            .slice(-5) // Take only the last 5 records
-            .reduce((sum: number, record: any) => sum + Number(record.requests), 0); // Sum of requests for the last 5 hours
+            // Get last 5 hours of usage and sum the requests
+            const lastFiveUsage = modelUsage.usageRecords
+                .slice(-5) // Take only the last 5 records
+                .reduce((sum: number, record: any) => sum + Number(record.requests), 0); // Sum of requests for the last 5 hours
 
-        // Find the corresponding model info using the model_uid
-        const matchedModel = modelsData.find((model: any) => model.model_uid === modelUsage.model_uid);
+            // Find the corresponding model info using the model_uid
+            const matchedModel = modelsData.find((model: any) => model.model_uid === modelUsage.model_uid);
 
-        if (!matchedModel) {
-            return null; // If no match, skip
-        }
+            if (!matchedModel) {
+                return null; // If no match, skip
+            }
 
-        return {
-            model_uid: modelUsage.model_uid,
-            lastFiveUsage, // Sum of last 5 hours usage
-            model_name: matchedModel.model_name,
-            model_provider: matchedModel.model_provider,
-            model_image: matchedModel.model_image,
-            model_version: matchedModel.model_version,
-        };
+            return {
+                model_uid: modelUsage.model_uid,
+                lastFiveUsage, // Sum of last 5 hours usage
+                model_name: matchedModel.model_name,
+                model_provider: matchedModel.model_provider,
+                model_image: matchedModel.model_image,
+                model_version: matchedModel.model_version,
+            };
         });
 
         // Filter out any null entries (if some model UIDs weren't found in modelData)
@@ -176,7 +196,7 @@ const Index = () => {
     });
 
     const handleModelToggle = (modelName: string) => {
-        setVisibleModels(prevVisibleModels => {
+        setVisibleModels((prevVisibleModels) => {
             if (prevVisibleModels.includes(modelName)) {
                 // If model is currently visible, remove it
                 return prevVisibleModels.filter((name) => name !== modelName);
@@ -188,57 +208,57 @@ const Index = () => {
     };
 
     // LINE CHART FUNCTIONS --------- START
-    const getAllTimestamps = (modelData: any[]) => {   //  Function to get timestamps from all models
+    const getAllTimestamps = (modelData: any[]) => {
+        //  Function to get timestamps from all models
         const timestampsSet = new Set<string>();
-    
+
         modelData.forEach((model: any) => {
-        model.usageRecords.forEach((record: any) => {
-            timestampsSet.add(record.timestamp);
+            model.usageRecords.forEach((record: any) => {
+                timestampsSet.add(record.timestamp);
+            });
         });
-        });
-    
-        return Array.from(timestampsSet).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());  // Sort array of timestamps
+
+        return Array.from(timestampsSet).sort((a, b) => new Date(a).getTime() - new Date(b).getTime()); // Sort array of timestamps
     };
-    
+
     // Transform usage data to chart series format (use null for missing values)
     const transformDataWithNulls = (modelData: any[], allTimestamps: string[]) => {
         return modelData.map((model: any) => {
-        const data = allTimestamps.map((timestamp) => {
-            // Check if the model has a record for the current time
-            const record = model.usageRecords.find((r: any) => r.timestamp === timestamp);
-            
-            // If record exists, return its data, otherwise return null for missing timestamps
+            const data = allTimestamps.map((timestamp) => {
+                // Check if the model has a record for the current time
+                const record = model.usageRecords.find((r: any) => r.timestamp === timestamp);
+
+                // If record exists, return its data, otherwise return null for missing timestamps
+                return {
+                    x: new Date(timestamp).getTime(), // Ensure the timestamp is in correct format for the x-axis (datetime)
+                    y: record ? Number(record.requests) : null,
+                };
+            });
+
             return {
-            x: new Date(timestamp).getTime(), // Ensure the timestamp is in correct format for the x-axis (datetime)
-            y: record ? Number(record.requests) : null,
+                name: model.name,
+                data,
             };
         });
-    
-        return {
-            name: model.name,
-            data,
-        };
-        });
     };
-    
-    const allTimestamps = getAllTimestamps(modelUsage);   //  Get timestamps from all models
-    
-    // const transformedSeries = transformDataWithNulls(modelUsage, allTimestamps);  
+
+    const allTimestamps = getAllTimestamps(modelUsage); //  Get timestamps from all models
+
+    // const transformedSeries = transformDataWithNulls(modelUsage, allTimestamps);
 
     const getFilteredSeries = () => {
-        const filteredModelUsage = modelUsage.filter((model: any) => visibleModels.includes(model.name));   // Filter the series data based on the visible models
-    
+        const filteredModelUsage = modelUsage.filter((model: any) => visibleModels.includes(model.name)); // Filter the series data based on the visible models
+
         // Return the transformed data for the filtered models
         return transformDataWithNulls(filteredModelUsage, allTimestamps);
     };
 
     const colorPalette = isDark
-    ? ['#2196F3', '#E7515A', '#FF9800', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF5722', '#673AB7', '#3F51B5']
-    : ['#1B55E2', '#E7515A', '#FF9800', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF5722', '#673AB7', '#3F51B5'];
+        ? ['#2196F3', '#E7515A', '#FF9800', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF5722', '#673AB7', '#3F51B5']
+        : ['#1B55E2', '#E7515A', '#FF9800', '#4CAF50', '#FFC107', '#9C27B0', '#00BCD4', '#FF5722', '#673AB7', '#3F51B5'];
 
     const getColorForLine = (index: number) => colorPalette[index % colorPalette.length];
 
-    
     // Line Chart Configuration
     const revenueChart: any = {
         series: getFilteredSeries(),
@@ -282,9 +302,9 @@ const Index = () => {
                 labels: {
                     datetimeFormatter: {
                         year: 'yyyy',
-                        month: 'MMM \'yy',
+                        month: "MMM 'yy",
                         day: 'dd MMM',
-                        hour: 'HH:mm'
+                        hour: 'HH:mm',
                     },
                     style: {
                         fontSize: '12px',
@@ -382,36 +402,30 @@ const Index = () => {
     // LINE CHART FUNCTIONS --------- END
 
     // PIE CHART FUNCTIONS --------- START
-    
-    const getChartData = (usageData: any, visibleModels: any) => {   // Transform the fetched model usage data to the chart format
+
+    const getChartData = (usageData: any, visibleModels: any) => {
+        // Transform the fetched model usage data to the chart format
         const pie_series: number[] = [];
         const pie_lables: string[] = [];
 
         // Iterate through each model's usage data
         usageData
-        .filter((model: any) => visibleModels.includes(model.name))  // Only include visible models
-        .forEach((model: any) => {
-            // Sum up all requests for the model
-            const totalRequests = model.usageRecords
-                ? model.usageRecords.reduce(
-                    (acc: number, record: any) => acc + Number(record.requests),
-                    0
-                )
-                : 0;  // If there are no usageRecords, set totalRequests to 0
+            .filter((model: any) => visibleModels.includes(model.name)) // Only include visible models
+            .forEach((model: any) => {
+                // Sum up all requests for the model
+                const totalRequests = model.usageRecords ? model.usageRecords.reduce((acc: number, record: any) => acc + Number(record.requests), 0) : 0; // If there are no usageRecords, set totalRequests to 0
 
-            // Add the summed data to the series array
-            pie_series.push(totalRequests);
+                // Add the summed data to the series array
+                pie_series.push(totalRequests);
 
-            // Add the model name to the labels array
-            pie_lables.push(model.name);
-        });
-
-
+                // Add the model name to the labels array
+                pie_lables.push(model.name);
+            });
 
         // Return chart data in the expected format
         return {
-        pie_series,
-        pie_lables,
+            pie_series,
+            pie_lables,
         };
     };
 
@@ -506,7 +520,7 @@ const Index = () => {
     return (
         <>
             <div>
-                <div className='flex items-center justify-between'>
+                <div className="flex items-center justify-between">
                     <ul className="flex space-x-2 rtl:space-x-reverse">
                         <li>
                             <Link href="/" className="text-primary hover:underline">
@@ -517,6 +531,15 @@ const Index = () => {
                             <span>Overview</span>
                         </li>
                     </ul>
+                    {lastUpdateTime && (
+                        <ul>
+                            <li className="px-4 py-1">
+                                <span className="block text-sm text-black dark:text-white-light">
+                                    Last Data Update: {lastUpdateTime.toLocaleString()}
+                                </span>
+                            </li>
+                        </ul>
+                    )}
                     <div className="dropdown">
                         <Dropdown
                             offset={[0, 1]}
@@ -525,34 +548,34 @@ const Index = () => {
                             button={
                                 <>
                                     <span className="ltr:mr-1 rtl:ml-1">View / Hide</span>
-                                    <IconCaretDown className="w-5 h-5" />
+                                    <IconCaretDown className="h-5 w-5" />
                                 </>
                             }
                         >
                             <ul className="!min-w-[220px]">
-                            <PerfectScrollbar className="relative mb-4 h-[230px] ltr:-mr-3 ltr:pr-3 rtl:-ml-3 rtl:pl-3" options={{suppressScrollX: true}}>
-                                {dropdownModels.map((modelName) => (
-                                    <li 
-                                    className="flex flex-col"
-                                    onClick={(e) => {
-                                        e.stopPropagation();
-                                    }}
-                                    key={modelName}
-                                    >
-                                        <div className="flex items-center px-4 py-1">
-                                            <label className="mb-0 cursor-pointer">
-                                                <input
-                                                    type="checkbox"
-                                                    checked={visibleModels.includes(modelName)}
-                                                    className="form-checkbox"
-                                                    // defaultValue={col.accessor}
-                                                    onChange={() => handleModelToggle(modelName)}
-                                                />
-                                                <span className="ltr:ml-2 rtl:mr-2">{modelName}</span>
-                                            </label>
-                                        </div>
-                                    </li>
-                                ))}
+                                <PerfectScrollbar className="relative mb-4 h-[230px] ltr:-mr-3 ltr:pr-3 rtl:-ml-3 rtl:pl-3" options={{ suppressScrollX: true }}>
+                                    {dropdownModels.map((modelName) => (
+                                        <li
+                                            className="flex flex-col"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                            }}
+                                            key={modelName}
+                                        >
+                                            <div className="flex items-center px-4 py-1">
+                                                <label className="mb-0 cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={visibleModels.includes(modelName)}
+                                                        className="form-checkbox"
+                                                        // defaultValue={col.accessor}
+                                                        onChange={() => handleModelToggle(modelName)}
+                                                    />
+                                                    <span className="ltr:ml-2 rtl:mr-2">{modelName}</span>
+                                                </label>
+                                            </div>
+                                        </li>
+                                    ))}
                                 </PerfectScrollbar>
                             </ul>
                         </Dropdown>
@@ -572,8 +595,8 @@ const Index = () => {
                                     ) : (
                                         <div className="grid min-h-[325px] place-content-center bg-white-light/30 dark:bg-dark dark:bg-opacity-[0.08] ">
                                             {/* <span className="inline-flex h-5 w-5 animate-spin rounded-full  border-2 border-black !border-l-transparent dark:border-white"></span> */}
-                                            <span className="w-5 h-5 m-auto mb-10">
-                                                <span className="animate-ping inline-flex h-full w-full rounded-full bg-info"></span>
+                                            <span className="m-auto mb-10 h-5 w-5">
+                                                <span className="inline-flex h-full w-full animate-ping rounded-full bg-info"></span>
                                             </span>
                                         </div>
                                     )}
@@ -585,7 +608,7 @@ const Index = () => {
                             <div className="mb-5 flex items-center justify-between">
                                 <h5 className="text-lg font-semibold dark:text-white-light">Total Usage</h5>
                             </div>
-                            
+
                             <div>
                                 <div className="rounded-lg bg-white dark:bg-black">
                                     {isMounted ? (
@@ -601,33 +624,29 @@ const Index = () => {
                     </div>
 
                     <div className="mb-6 grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
-                        <div className="panel pb-1 h-full sm:col-span-2 xl:col-span-1">
+                        <div className="panel h-full pb-1 sm:col-span-2 xl:col-span-1">
                             <div className="mb-5 flex items-center justify-start gap-2 dark:text-white-light">
                                 <h5 className="text-lg font-semibold">Top used models</h5>
-                                <p className=" text-white-dark dark:text-gray-500 text-sm">[ Last 5hrs ]</p>
+                                <p className=" text-sm text-white-dark dark:text-gray-500">[ Last 5hrs ]</p>
                             </div>
-                            <PerfectScrollbar className="relative mb-4 h-[230px] ltr:-mr-3 ltr:pr-3 rtl:-ml-3 rtl:pl-3" options={{suppressScrollX: true}}>
+                            <PerfectScrollbar className="relative mb-4 h-[230px] ltr:-mr-3 ltr:pr-3 rtl:-ml-3 rtl:pl-3" options={{ suppressScrollX: true }}>
                                 <div>
                                     <div className="space-y-6">
                                         {/* Dynamically render the top models */}
                                         {topModels.map((model, index) => (
                                             <div key={index} className="flex">
-                                            {/* Model Image */}
-                                            <img
-                                                className="h-8 w-8 rounded-md object-cover ltr:mr-3 rtl:ml-3"
-                                                src={`${model.model_image}`}
-                                                alt={`${model.model_name}`}
-                                            />
-                                            <div className="flex-1 px-3">
-                                                {/* Model Name */}
-                                                <div>{model.model_name}</div>
-                                                {/* Model Provider */}
-                                                <div className="text-xs text-white-dark dark:text-gray-500">{model.model_provider}</div>
-                                            </div>
-                                            {/* Last 5-hour Usage */}
-                                            <span className="whitespace-pre px-1 text-base text-success ltr:ml-auto rtl:mr-auto">
-                                                {model.lastFiveUsage.toLocaleString()} {/* Format usage with commas */}
-                                            </span>
+                                                {/* Model Image */}
+                                                <img className="h-8 w-8 rounded-md object-cover ltr:mr-3 rtl:ml-3" src={`${model.model_image}`} alt={`${model.model_name}`} />
+                                                <div className="flex-1 px-3">
+                                                    {/* Model Name */}
+                                                    <div>{model.model_name}</div>
+                                                    {/* Model Provider */}
+                                                    <div className="text-xs text-white-dark dark:text-gray-500">{model.model_provider}</div>
+                                                </div>
+                                                {/* Last 5-hour Usage */}
+                                                <span className="whitespace-pre px-1 text-base text-success ltr:ml-auto rtl:mr-auto">
+                                                    {model.lastFiveUsage.toLocaleString()} {/* Format usage with commas */}
+                                                </span>
                                             </div>
                                         ))}
                                     </div>
@@ -636,36 +655,34 @@ const Index = () => {
                                     <div className="border-t border-white-light dark:border-white/10">
                                         <button type="button" className="group group flex w-full items-center justify-center p-1 font-semibold hover:text-primary">
                                             <Link href="/analytics">View All Models</Link>
-                                            <IconArrowLeft className="rtl:rotate-180 group-hover:translate-x-1 rtl:group-hover:-translate-x-1 transition duration-300 ltr:ml-1 rtl:mr-1" />
+                                            <IconArrowLeft className="transition duration-300 group-hover:translate-x-1 ltr:ml-1 rtl:mr-1 rtl:rotate-180 rtl:group-hover:-translate-x-1" />
                                         </button>
                                     </div>
-                                ) : (''
-                                ) }
+                                ) : (
+                                    ''
+                                )}
                             </PerfectScrollbar>
                         </div>
 
-                        <div className="panel p-0 h-full lg:col-span-2">
+                        <div className="panel h-full p-0 lg:col-span-2">
                             <Swiper modules={[Pagination, Autoplay]} pagination={{ clickable: true }} autoplay={{ delay: 5000 }} direction="vertical" className="mx-auto max-w-full" id="slider3">
                                 <div className="swiper-wrapper">
-                                {items.map((item, i) => {
-                                    return (
-                                        <SwiperSlide key={i}>
-                                            <img src={`/assets/images/${item.src}`} className="w-full max-h-full object-cover rounded-md" alt="itemImage" />
-                                                <div className="absolute z-[999] text-white top-1/4 ltr:left-12 rtl:right-12">
-                                                    <div className="sm:text-3xl text-base font-bold">{item.big_text}</div>
-                                                    <div className="sm:mt-5 mt-1 w-4/5 text-base sm:block hidden font-medium">
-                                                    {item.small_text}
-                                                    </div>
-                                                    <Link href="https://alle-ai.com/chat" target='_blank'>
-                                                        <button type="button" className="mt-4 btn btn-primary">
+                                    {items.map((item, i) => {
+                                        return (
+                                            <SwiperSlide key={i}>
+                                                <img src={`/assets/images/${item.src}`} className="max-h-full w-full rounded-md object-cover" alt="itemImage" />
+                                                <div className="absolute top-1/4 z-[999] text-white ltr:left-12 rtl:right-12">
+                                                    <div className="text-base font-bold sm:text-3xl">{item.big_text}</div>
+                                                    <div className="mt-1 hidden w-4/5 text-base font-medium sm:mt-5 sm:block">{item.small_text}</div>
+                                                    <Link href="https://alle-ai.com/chat" target="_blank">
+                                                        <button type="button" className="btn btn-primary mt-4">
                                                             Try now
                                                         </button>
                                                     </Link>
                                                 </div>
-                                        </SwiperSlide>
-                                        
-                                    );
-                                })}
+                                            </SwiperSlide>
+                                        );
+                                    })}
                                 </div>
                             </Swiper>
                         </div>

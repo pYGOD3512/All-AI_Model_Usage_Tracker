@@ -1,5 +1,5 @@
 import { DataTable, DataTableSortStatus } from 'mantine-datatable';
-import { useState, Fragment, useEffect, useRef } from 'react';
+import { useState, Fragment, useEffect, useCallback } from 'react';
 import sortBy from 'lodash/sortBy';
 import { useDispatch, useSelector } from 'react-redux';
 import { IRootState } from '@/store';
@@ -13,10 +13,9 @@ import { Dialog, Transition, Tab } from '@headlessui/react';
 
 import Swal from 'sweetalert2';
 
-
 // CANISTER CONNECTION
 import { Actor, HttpAgent } from '@dfinity/agent';
-import { idlFactory } from '../lib/model_tracker_backend.did'; 
+import { idlFactory } from '../lib/model_tracker_backend.did';
 import IconX from '@/components/Icon/IconX';
 const canisterId: any = process.env.NEXT_PUBLIC_BACKEND_CANISTER_ID;
 
@@ -58,40 +57,51 @@ const ColumnChooser = () => {
     const [models, setModels] = useState<any[]>([]);
     const [useBackendData, setUseBackendData] = useState(false); // To switch between hardcoded and backend data
 
-    useEffect(() => {
-        async function fetchModels() {
-            try {
-                const agent = new HttpAgent({ host: "http://127.0.0.1:4943", verifyQuerySignatures: false });
-                await agent.fetchRootKey(); //Disable certificate verification
-                
-                const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
-                const modelsData: any = await modelTrackerBackend.getModels();
 
-                if (modelsData && modelsData.length > 0) {
-                    // Map backend data to the format expected by the table
-                    const mappedModels = modelsData.map((model: any, index: number) => ({
-                        id: index + 1,
-                        model_image: model.image,
-                        model_name: model.name,
-                        model_version: model.version,
-                        dob: 'N/A',
-                        model_desc: model.description,
-                        model_provider: model.provider,
-                        isActive: true,
-                        age: 'N/A',
-                        model_link: model.link,
-                    }));
+    // Wrap fetchModels in useCallback
+    const fetchModels = useCallback(async () => {
+        try {
+            const agent = new HttpAgent({ host: process.env.NEXT_PUBLIC_LOCAL_HOST, verifyQuerySignatures: false });
+            await agent.fetchRootKey(); //Disable certificate verification
 
-                    setModels(mappedModels); 
-                    setUseBackendData(true); // Use backend data if available
-                }
-            } catch (error) {
-                coloredToast('danger');
+            const modelTrackerBackend = Actor.createActor(idlFactory, { agent, canisterId });
+            const modelsData: any = await modelTrackerBackend.getModels();
+
+            if (modelsData && modelsData.length > 0) {
+                // Map backend data to the format expected by the table
+                const mappedModels = modelsData.map((model: any, index: number) => ({
+                    id: index + 1,
+                    model_image: model.image,
+                    model_name: model.name,
+                    model_version: model.version,
+                    dob: 'N/A',
+                    model_desc: model.description,
+                    model_provider: model.provider,
+                    isActive: true,
+                    age: 'N/A',
+                    model_link: model.link,
+                }));
+
+                setModels(mappedModels);
+                setUseBackendData(true); // Use backend data if available
             }
+        } catch (error) {
+            coloredToast('danger');
         }
-
-        fetchModels();
     }, []);
+
+    useEffect(() => {
+        // Initial fetch
+        fetchModels();
+
+        // Set up interval to fetch every hour
+        const intervalId = setInterval(() => {
+            fetchModels();
+        }, 60* 60 * 1000); // 60 minutes * 60 seconds * 1000 milliseconds
+
+        // Clean up interval on component unmount
+        return () => clearInterval(intervalId);
+    }, [fetchModels]);
 
     const dispatch = useDispatch();
     useEffect(() => {
@@ -108,7 +118,7 @@ const ColumnChooser = () => {
         columnAccessor: 'id',
         direction: 'asc',
     });
-    const [hideCols, setHideCols] = useState<any>(['age', 'dob',]);
+    const [hideCols, setHideCols] = useState<any>(['age', 'dob']);
 
     const formatDate = (date: any) => {
         if (date) {
@@ -164,10 +174,11 @@ const ColumnChooser = () => {
 
     // Search functionality
     useEffect(() => {
-        const filteredRecords = recordsToShow.filter((record: any) =>
-            record.model_name.toLowerCase().includes(search.toLowerCase()) ||
-            record.model_version.toLowerCase().includes(search.toLowerCase()) ||
-            record.model_provider.toLowerCase().includes(search.toLowerCase())
+        const filteredRecords = recordsToShow.filter(
+            (record: any) =>
+                record.model_name.toLowerCase().includes(search.toLowerCase()) ||
+                record.model_version.toLowerCase().includes(search.toLowerCase()) ||
+                record.model_provider.toLowerCase().includes(search.toLowerCase())
         );
         setInitialRecords(sortBy(filteredRecords, 'id'));
         setPage(1);
@@ -185,7 +196,8 @@ const ColumnChooser = () => {
                 </a>
                 <span className="ltr:ml-1 rtl:ml-3"> to use these models</span>
             </div> */}
-            <ul className="flex space-x-2 rtl:space-x-reverse">
+            <div className="flex items-center justify-between">
+                <ul className="flex space-x-2 rtl:space-x-reverse">
                     <li>
                         <Link href="/" className="text-primary hover:underline">
                             Dashboard
@@ -195,7 +207,7 @@ const ColumnChooser = () => {
                         <span>All models</span>
                     </li>
                 </ul>
-            
+            </div>
             <div className="panel mt-6">
                 <div className="mb-5 flex flex-col gap-5 md:flex-row md:items-center">
                     <h5 className="text-lg font-semibold dark:text-white-light">All Models</h5>
@@ -208,7 +220,7 @@ const ColumnChooser = () => {
                                     button={
                                         <>
                                             <span className="ltr:mr-1 rtl:ml-1">Columns</span>
-                                            <IconCaretDown className="w-5 h-5" />
+                                            <IconCaretDown className="h-5 w-5" />
                                         </>
                                     }
                                 >
@@ -340,15 +352,7 @@ const ColumnChooser = () => {
             </div>
             <Transition appear show={modal18} as={Fragment}>
                 <Dialog as="div" open={modal18} onClose={() => setModal18(false)}>
-                    <Transition.Child
-                        as={Fragment}
-                        enter="ease-out duration-300"
-                        enterFrom="opacity-0"
-                        enterTo="opacity-100"
-                        leave="ease-in duration-200"
-                        leaveFrom="opacity-100"
-                        leaveTo="opacity-0"
-                    >
+                    <Transition.Child as={Fragment} enter="ease-out duration-300" enterFrom="opacity-0" enterTo="opacity-100" leave="ease-in duration-200" leaveFrom="opacity-100" leaveTo="opacity-0">
                         <div className="fixed inset-0" />
                     </Transition.Child>
                     <div id="tabs_modal" className="fixed inset-0 z-[999] overflow-y-auto bg-[black]/60">
@@ -377,9 +381,7 @@ const ColumnChooser = () => {
                                                         <button
                                                             type="button"
                                                             className={`${
-                                                                selected
-                                                                    ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black '
-                                                                    : ''
+                                                                selected ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black ' : ''
                                                             } -mb-[1px] block border border-transparent p-3.5 py-2 hover:text-primary dark:hover:border-b-black`}
                                                         >
                                                             Overview
@@ -391,9 +393,7 @@ const ColumnChooser = () => {
                                                         <button
                                                             type="button"
                                                             className={`${
-                                                                selected
-                                                                    ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black '
-                                                                    : ''
+                                                                selected ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black ' : ''
                                                             }-mb-[1px] block border border-transparent p-3.5 py-2 hover:text-primary dark:hover:border-b-black`}
                                                         >
                                                             Capabilities
@@ -405,9 +405,7 @@ const ColumnChooser = () => {
                                                         <button
                                                             type="button"
                                                             className={`${
-                                                                selected
-                                                                    ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black '
-                                                                    : ''
+                                                                selected ? '!border-white-light !border-b-white  text-primary !outline-none dark:!border-[#191e3a] dark:!border-b-black ' : ''
                                                             }-mb-[1px] block border border-transparent p-3.5 py-2 hover:text-primary dark:hover:border-b-black`}
                                                         >
                                                             Technical Details
@@ -441,7 +439,7 @@ const ColumnChooser = () => {
                                                 </Tab.Panel>
                                                 <Tab.Panel>
                                                     <div className="pt-5">
-                                                    <p>This section is under development. Check back later &#128512;.</p>
+                                                        <p>This section is under development. Check back later &#128512;.</p>
                                                     </div>
                                                 </Tab.Panel>
                                             </Tab.Panels>
